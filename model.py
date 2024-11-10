@@ -82,7 +82,7 @@ class flat_elu_mlp(torch.nn.Module):
         for layer in self.layers:
             torch.nn.init.normal_(layer.weight, mean = 0, std = 1 / math.sqrt(intermediate_size))
 
-        self.mean_offset_constant = torch.nn.Parameter(torch.tensor([- 0.160520572266]), requires_grad=False)
+        self.mean_offset_constant = torch.nn.Parameter(torch.tensor([-0.160520572266]), requires_grad=False)
         self.std_scale_constant = torch.nn.Parameter(torch.tensor([1 / 0.786879001735]), requires_grad=False)
     
     def forward(self, input):
@@ -98,7 +98,6 @@ class transformer_block(torch.nn.Module):
 
         self.block_config = block_config
         self.network_config = network_config
-
 
 
         if block_config.key_size % block_config.n_attn_heads != 0:
