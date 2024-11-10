@@ -70,6 +70,28 @@ class xpos(torch.nn.Module):
         return queries, keys
 
 
+class flat_elu_mlp(torch.nn.Module):
+
+    def __init__(self, intermediate_size, n_intermediate_layers):
+        super(flat_elu_mlp, self).__init__()
+
+        self.layers = torch.nn.ModuleList([
+            torch.nn.Linear(intermediate_size, intermediate_size, bias = False) for _ in range(n_intermediate_layers)
+        ])
+
+        for layer in self.layers:
+            torch.nn.init.normal_(layer.weight, mean = 0, std = 1 / math.sqrt(intermediate_size))
+
+        self.mean_constant = torch.nn.Parameter(torch.tensor([0.160520572266]), requires_grad=False)
+        self.std_constant = torch.nn.Parameter(torch.tensor([0.786879001735]), requires_grad=False)
+    
+    def forward(self, input):
+        for layer in self.layers:
+            input = (torch.nn.functional.elu(layer(input)) - self.mean_constant) / self.std_constant
+        return input
+
+
+
 class transformer_block(torch.nn.Module):
     def __init__(self, network_config: transformer_network_config, block_config: transformer_block_config):
         super(transformer_block, self).__init__()
