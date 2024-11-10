@@ -186,7 +186,6 @@ class transformer_block(torch.nn.Module):
             keys.transpose(-3, -2),
             values.transpose(-3, -2),
             is_causal = (mask is None),
-            dropout_p = self.network_config.dropout_rate if self.training else 0.0,
             attn_mask = mask
         # transpose to switch the sequence and head dimensions
         ).transpose(-3, -2).flatten(-2)
