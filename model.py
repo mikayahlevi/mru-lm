@@ -189,9 +189,9 @@ class transformer_block(torch.nn.Module):
             dropout_p = self.network_config.dropout_rate if self.training else 0.0,
             attn_mask = mask
         # transpose to switch the sequence and head dimensions
-        ).transpose(-3, -2)
+        ).transpose(-3, -2).flatten(-2)
         
-        return self.attention_linear(attention.flatten(-2))
+        return self.attention_linear(attention / attention.std(dim = -1, keepdim = True))
     
 
     def forward(self, activations: torch.Tensor, kv_cache: Optional[tuple[torch.Tensor, torch.Tensor]], index) -> tuple[torch.Tensor, tuple[torch.Tensor, torch.Tensor]]:
