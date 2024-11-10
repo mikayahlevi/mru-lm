@@ -136,6 +136,8 @@ class transformer_block(torch.nn.Module):
         torch.nn.init.normal_(self.attention_linear.weight, mean = 0, std = 0.02 / math.sqrt(len(network_config.block_configs)))
 
         self.position_embedding = xpos(self.key_head_size, max_sequence_length = network_config.max_sequence_length)
+
+        self.sqrt_two_constant = torch.nn.Parameter(torch.tensor([math.sqrt(2)]), requires_grad=False)
     
 
     def get_full_kv(self, incoming_kv, kv_cache, index) -> tuple[tuple[torch.Tensor, torch.Tensor], Optional[torch.Tensor]]:
@@ -180,22 +182,16 @@ class transformer_block(torch.nn.Module):
                 return (keys, values), mask
 
 
-    
-    def forward(self, activations: torch.Tensor, kv_cache: Optional[tuple[torch.Tensor, torch.Tensor]], index) -> tuple[torch.Tensor, tuple[torch.Tensor, torch.Tensor]]:
-        activation_norms = self.first_ln(activations)
+    def attention(self, activations, kv_cache, index):
+        queries = self.query_layer(activations).unflatten(-1, (self.block_config.n_attn_heads, self.key_head_size))
 
-        queries = self.query_layer(activation_norms).unflatten(-1, (self.block_config.n_attn_heads, self.key_head_size))
-
-        incoming_keys = self.key_layer(activation_norms).unflatten(-1, (self.block_config.n_attn_heads, self.key_head_size))
-        incoming_values = self.value_layer(activation_norms).unflatten(-1, (self.block_config.n_attn_heads, self.value_head_size))
-
+        incoming_keys = self.key_layer(activations).unflatten(-1, (self.block_config.n_attn_heads, self.key_head_size))
+        incoming_values = self.value_layer(activations).unflatten(-1, (self.block_config.n_attn_heads, self.value_head_size))
 
         queries, incoming_keys = self.position_embedding(queries, incoming_keys, index, index + queries.size(-3))
 
-
         (keys, values), mask = self.get_full_kv((incoming_keys, incoming_values), kv_cache, index)
 
-        # transpose to switch the sequence and head dimensions
         attention = torch.nn.functional.scaled_dot_product_attention(
             queries.transpose(-3, -2),
             keys.transpose(-3, -2),
@@ -203,19 +199,16 @@ class transformer_block(torch.nn.Module):
             is_causal = (mask is None),
             dropout_p = self.network_config.dropout_rate if self.training else 0.0,
             attn_mask = mask
+        # transpose to switch the sequence and head dimensions
         ).transpose(-3, -2)
+        
+        return self.attention_linear(attention.flatten(-2))
+    
 
-
-        activations = activations + torch.nn.functional.dropout(
-            self.attention_linear(
-                attention.flatten(-2)
-            ), 
-            p = self.network_config.dropout_rate,
-            training = self.training
-        )
-
-        activations = activations + self.mlp(self.second_ln(activations))
-
+    def forward(self, activations: torch.Tensor, kv_cache: Optional[tuple[torch.Tensor, torch.Tensor]], index) -> tuple[torch.Tensor, tuple[torch.Tensor, torch.Tensor]]:
+        # kv cache is modified in place
+        activations = (activations + self.attention(activations, kv_cache = kv_cache, index = index)) / self.sqrt_two_constant
+        activations = (activations + self.mlp(activations)) / self.sqrt_two_constant
         return activations, kv_cache
 
 
@@ -237,8 +230,9 @@ class transformer_network(torch.nn.Module):
 
         self.final_ln = torch.nn.LayerNorm(config.embedding_size, bias = False)
         
-        self.lm_head = torch.nn.Linear(config.embedding_size, config.vocab_size, bias = False)
-        self.lm_head.weight = self.wte.weight
+        self.lm_head_weights = self.wte.weight
+
+        self.sqrt_embedding_constant = torch.nn.Parameter(torch.tensor([math.sqrt(config.embedding_size)]), requires_grad=False)
 
     # index should start at 0
     def forward(self, encodings: torch.Tensor, kv_cache: Optional[list[tuple[torch.Tensor, torch.Tensor]]] = None, index: int = 0) -> Optional[tuple[torch.Tensor, list[tuple[torch.Tensor, torch.Tensor]]]]:
@@ -251,9 +245,7 @@ class transformer_network(torch.nn.Module):
             else:
                 embeddings, kv_cache[i] = block.forward(embeddings, kv_cache[i], index)
         
-        embeddings = self.final_ln(embeddings)
-
-        logits = self.lm_head(embeddings)
+        logits = torch.nn.functional.linear(embeddings, weight = self.lm_head_weights / self.sqrt_embedding_constant)
 
         return logits, kv_cache  
         
