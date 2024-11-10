@@ -82,12 +82,12 @@ class flat_elu_mlp(torch.nn.Module):
         for layer in self.layers:
             torch.nn.init.normal_(layer.weight, mean = 0, std = 1 / math.sqrt(intermediate_size))
 
-        self.mean_constant = torch.nn.Parameter(torch.tensor([0.160520572266]), requires_grad=False)
-        self.std_constant = torch.nn.Parameter(torch.tensor([0.786879001735]), requires_grad=False)
+        self.mean_offset_constant = torch.nn.Parameter(torch.tensor([- 0.160520572266]), requires_grad=False)
+        self.std_scale_constant = torch.nn.Parameter(torch.tensor([1 / 0.786879001735]), requires_grad=False)
     
     def forward(self, input):
         for layer in self.layers:
-            input = (torch.nn.functional.elu(layer(input)) - self.mean_constant) / self.std_constant
+            input = (torch.nn.functional.elu(layer(input)) + self.mean_offset_constant) * self.std_scale_constant
         return input
 
 
@@ -116,16 +116,17 @@ class transformer_block(torch.nn.Module):
         self.key_layer = torch.nn.Linear(block_config.hidden_size, block_config.key_size, bias = False)
         self.value_layer = torch.nn.Linear(block_config.hidden_size, block_config.value_size, bias = False)
 
-        torch.nn.init.normal_(self.query_layer.weight, mean = 0, std = 0.02)
-        torch.nn.init.normal_(self.key_layer.weight, mean = 0, std = 0.02)
-        torch.nn.init.normal_(self.value_layer.weight, mean = 0, std = 0.02)
+        hidden_scale_constant = math.sqrt(1 / block_config.hidden_size)
+        torch.nn.init.normal_(self.query_layer.weight, mean = 0, std = hidden_scale_constant)
+        torch.nn.init.normal_(self.key_layer.weight, mean = 0, std = hidden_scale_constant)
+        torch.nn.init.normal_(self.value_layer.weight, mean = 0, std = hidden_scale_constant)
 
         self.attention_linear = torch.nn.Linear(block_config.value_size, block_config.hidden_size, bias = False)
-        torch.nn.init.normal_(self.attention_linear.weight, mean = 0, std = 0.02 / math.sqrt(len(network_config.block_configs)))
+        torch.nn.init.normal_(self.attention_linear.weight, mean = 0, std = 1 / math.sqrt(block_config.value_size))
 
         self.position_embedding = xpos(self.key_head_size, max_sequence_length = network_config.max_sequence_length)
 
-        self.sqrt_two_constant = torch.nn.Parameter(torch.tensor([math.sqrt(2)]), requires_grad=False)
+        self.residule_scale = torch.nn.Parameter(torch.tensor([1 / math.sqrt(2)]), requires_grad=False)
     
 
     def get_full_kv(self, incoming_kv, kv_cache, index) -> tuple[tuple[torch.Tensor, torch.Tensor], Optional[torch.Tensor]]:
@@ -196,8 +197,8 @@ class transformer_block(torch.nn.Module):
     def forward(self, activations: torch.Tensor, kv_cache: Optional[tuple[torch.Tensor, torch.Tensor]], index) -> tuple[torch.Tensor, tuple[torch.Tensor, torch.Tensor]]:
         activations = torch.nn.functional.dropout(activations, p = self.network_config.dropout_rate, training = self.training)
         # kv_cache is modified in place
-        activations = (activations + self.attention(activations, kv_cache = kv_cache, index = index)) / self.sqrt_two_constant
-        activations = (activations + self.mlp(activations)) / self.sqrt_two_constant
+        activations = (activations + self.attention(activations, kv_cache = kv_cache, index = index)) * self.residule_scale
+        activations = (activations + self.mlp(activations)) * self.residule_scale
         return activations, kv_cache
 
 
@@ -215,13 +216,11 @@ class transformer_network(torch.nn.Module):
         
         
         self.wte = torch.nn.Embedding(config.vocab_size, config.embedding_size)
-        torch.nn.init.normal_(self.wte.weight, mean = 0, std = 0.02)
-
-        self.final_ln = torch.nn.LayerNorm(config.embedding_size, bias = False)
+        torch.nn.init.normal_(self.wte.weight, mean = 0, std = 1)
         
         self.lm_head_weights = self.wte.weight
 
-        self.sqrt_embedding_constant = torch.nn.Parameter(torch.tensor([math.sqrt(config.embedding_size)]), requires_grad=False)
+        self.embedding_scale_constant = torch.nn.Parameter(torch.tensor([1 / math.sqrt(config.embedding_size)]), requires_grad=False)
 
     # index should start at 0
     def forward(self, encodings: torch.Tensor, kv_cache: Optional[list[tuple[torch.Tensor, torch.Tensor]]] = None, index: int = 0) -> Optional[tuple[torch.Tensor, list[tuple[torch.Tensor, torch.Tensor]]]]:
@@ -234,7 +233,7 @@ class transformer_network(torch.nn.Module):
             else:
                 embeddings, kv_cache[i] = block.forward(embeddings, kv_cache[i], index)
         
-        logits = torch.nn.functional.linear(embeddings, weight = self.lm_head_weights / self.sqrt_embedding_constant)
+        logits = torch.nn.functional.linear(embeddings, weight = self.lm_head_weights * self.embedding_scale_constant)
 
         return logits, kv_cache  
         
