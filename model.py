@@ -110,19 +110,7 @@ class transformer_block(torch.nn.Module):
         self.value_head_size = block_config.hidden_size // block_config.n_attn_heads
 
 
-
-        self.first_ln = torch.nn.LayerNorm(block_config.hidden_size, bias = False)
-        self.second_ln = torch.nn.LayerNorm(block_config.hidden_size, bias = False)
-
-        self.mlp = torch.nn.Sequential(
-            torch.nn.Linear(block_config.hidden_size, block_config.hidden_size * 4, bias = False),
-            torch.nn.GELU(),
-            torch.nn.Linear(block_config.hidden_size * 4, block_config.hidden_size, bias = False)
-        )
-
-        torch.nn.init.normal_(self.mlp[0].weight, mean = 0, std = 0.02)
-        torch.nn.init.normal_(self.mlp[2].weight, mean = 0, std = 0.02 / math.sqrt(len(network_config.block_configs)))
-
+        self.mlp = flat_elu_mlp(block_config.hidden_size, 3)
 
         self.query_layer = torch.nn.Linear(block_config.hidden_size, block_config.key_size, bias = False)
         self.key_layer = torch.nn.Linear(block_config.hidden_size, block_config.key_size, bias = False)
@@ -206,7 +194,8 @@ class transformer_block(torch.nn.Module):
     
 
     def forward(self, activations: torch.Tensor, kv_cache: Optional[tuple[torch.Tensor, torch.Tensor]], index) -> tuple[torch.Tensor, tuple[torch.Tensor, torch.Tensor]]:
-        # kv cache is modified in place
+        activations = torch.nn.functional.dropout(activations, p = self.network_config.dropout_rate, training = self.training)
+        # kv_cache is modified in place
         activations = (activations + self.attention(activations, kv_cache = kv_cache, index = index)) / self.sqrt_two_constant
         activations = (activations + self.mlp(activations)) / self.sqrt_two_constant
         return activations, kv_cache
@@ -237,7 +226,7 @@ class transformer_network(torch.nn.Module):
     # index should start at 0
     def forward(self, encodings: torch.Tensor, kv_cache: Optional[list[tuple[torch.Tensor, torch.Tensor]]] = None, index: int = 0) -> Optional[tuple[torch.Tensor, list[tuple[torch.Tensor, torch.Tensor]]]]:
 
-        embeddings = torch.nn.functional.dropout(self.wte(encodings), p = self.config.dropout_rate, training = self.training)
+        embeddings = self.wte(encodings)
 
         for i, block in enumerate(self.blocks):
             if kv_cache is None:
