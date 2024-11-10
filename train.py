@@ -123,7 +123,6 @@ def train(settings, hyperparameters, model, dataset, tokenizer, device):
 
     
     optimizer = configure_optimizer(model, hyperparameters)
-    scaler = torch.cuda.amp.GradScaler()
     scheduler = torch.optim.lr_scheduler.ChainedScheduler(
         [
             torch.optim.lr_scheduler.LinearLR(optimizer, start_factor = hyperparameters.start_lr / hyperparameters.peak_lr, end_factor = 1.0, total_iters = hyperparameters.lr_warmup_steps // settings.schedule_every),
@@ -157,15 +156,13 @@ def train(settings, hyperparameters, model, dataset, tokenizer, device):
         log_minor_loss_total += loss.item()
 
 
-        scaler.scale(loss).backward()
+        loss.backward()
 
         # clip grad norm
-        scaler.unscale_(optimizer)
         torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
 
         if (step + 1) % settings.update_every == 0:
-            scaler.step(optimizer)
-            scaler.update()
+            optimizer.step()
             optimizer.zero_grad()
 
         if (step + 1) % settings.schedule_every == 0:
