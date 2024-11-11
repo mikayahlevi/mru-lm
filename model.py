@@ -126,19 +126,20 @@ class flat_relu_mlp(torch.nn.Module):
     
 
 class genmatrix_module(torch.nn.Module):
-    def __init__(self, input_size, resolution, n_state_heads, state_head_size, qk_init = 0.01):
+    def __init__(self, input_size, resolution, n_state_heads, state_head_size, lr_like = 0.005):
         super(genmatrix_module, self).__init__()
 
         self.resolution = resolution
         self.input_size = input_size
         self.n_state_heads = n_state_heads
         self.state_head_size = state_head_size
+        self.lr_like = lr_like
 
         self.query_layer = torch.nn.Linear(input_size, resolution * n_state_heads * state_head_size, bias = False)
         self.value_layer = torch.nn.Linear(input_size, resolution * n_state_heads * state_head_size, bias = False)
 
-        torch.nn.init.normal_(self.query_layer.weight, mean = 0, std = qk_init)
-        torch.nn.init.normal_(self.value_layer.weight, mean = 0, std = qk_init)
+        torch.nn.init.normal_(self.query_layer.weight, mean = 0, std = 1 / math.sqrt(input_size))
+        torch.nn.init.normal_(self.value_layer.weight, mean = 0, std = 1 / math.sqrt(input_size))
 
         self.eye = torch.nn.Parameter(torch.eye(state_head_size), requires_grad=False)
 
@@ -148,7 +149,7 @@ class genmatrix_module(torch.nn.Module):
 
         matrices = (queries.unsqueeze(-1) @ values.unsqueeze(-2))
 
-        return self.eye + matrices.sum(dim = -4).transpose(-3, -4)
+        return self.eye + matrices.sum(dim = -4).transpose(-3, -4) * self.lr_like
 
 
 
