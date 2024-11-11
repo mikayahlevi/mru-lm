@@ -71,7 +71,6 @@ class xpos(torch.nn.Module):
 
 
 class flat_elu_mlp(torch.nn.Module):
-
     def __init__(self, intermediate_size, n_intermediate_layers):
         super(flat_elu_mlp, self).__init__()
 
