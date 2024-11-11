@@ -32,6 +32,74 @@ class mrun_network_config:
     block_configs: list[mrun_block_config]
 
 
+class parallel_mru_class(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx, input_state, start_matrix_states):
+        final_matrix_states = start_matrix_states.clone()
+
+        sequence_length = start_matrix_states.size(-3)
+        
+        n_stages = math.ceil(math.log2(sequence_length))
+        for stage in range(n_stages):
+            stage_stride = 2 ** stage
+            final_matrix_states[..., stage_stride:, :, :] = final_matrix_states[..., :-stage_stride, :, :] @ final_matrix_states[..., stage_stride:, :, :]
+        
+
+        ctx.save_for_backward(input_state, start_matrix_states, final_matrix_states)
+        ctx.sequence_length = sequence_length
+
+        return (input_state.unsqueeze(-2) @ final_matrix_states).squeeze(-2)
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        def create_eye_for_shift(shape):
+            resized_eye = torch.eye(*shape[-2:])
+            while resized_eye.dim() < len(shape):
+                resized_eye = resized_eye.unsqueeze(0)
+            
+            resized_eye_shape = shape[:-3]
+            resized_eye_shape = list(resized_eye_shape)
+            
+            while len(resized_eye_shape) < len(shape):
+                resized_eye_shape.append(1)
+
+            resized_eye = resized_eye.repeat(*resized_eye_shape)
+            return resized_eye
+
+        def create_zeros_for_shift(shape):
+            new_shape = list(shape)
+            new_shape[-3] = 1
+            return torch.zeros(new_shape)
+        
+        input_state, start_matrix_states, final_matrix_states = ctx.saved_tensors
+
+        transposed_final_matrix_states = final_matrix_states.transpose(-1, -2)
+
+
+        grad_input_state = (grad_output.unsqueeze(-2) @ transposed_final_matrix_states).sum(dim = -2)
+        grad_final_matrix_states = input_state.unsqueeze(-1) * grad_output.unsqueeze(-2)
+
+
+        grad_before_start_matrix_states = torch.cat((create_eye_for_shift(transposed_final_matrix_states.shape), transposed_final_matrix_states[..., :-1, :, :]), dim = -3)
+
+
+        tl = torch.cat((start_matrix_states[..., 1:, :, :], create_zeros_for_shift(start_matrix_states.shape)), dim = -3).transpose(-1, -2)
+        bl = grad_final_matrix_states
+
+        sequence_length = ctx.sequence_length
+        n_stages = math.ceil(math.log2(sequence_length))
+        for stage in range(n_stages):
+            stage_stride = 2 ** stage
+            bl[..., :-stage_stride, :, :] = bl[..., stage_stride:, :, :] @ tl[..., :-stage_stride, :, :] + bl[..., :-stage_stride, :, :]
+            tl[..., :-stage_stride, :, :] = tl[..., stage_stride:, :, :] @ tl[..., :-stage_stride, :, :]
+
+        grad_start_matrix_states = grad_before_start_matrix_states @ bl
+
+        return grad_input_state, grad_start_matrix_states
+
+
+
+
 class flat_relu_mlp(torch.nn.Module):
     def __init__(self, intermediate_size, n_intermediate_layers):
         super(flat_relu_mlp, self).__init__()
