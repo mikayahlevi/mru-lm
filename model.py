@@ -92,13 +92,15 @@ class mrun_block(torch.nn.Module):
 
         self.initial_state = torch.nn.Parameter(torch.normal(mean = 0, std = 1, size = (block_config.n_state_heads, block_config.state_size)), requires_grad=True)
     
+    def parallel_mru():
+        pass
 
-    def forward(self, activations: torch.Tensor, kv_cache: Optional[tuple[torch.Tensor, torch.Tensor]], index) -> tuple[torch.Tensor, tuple[torch.Tensor, torch.Tensor]]:
+    def forward(self, activations: torch.Tensor, state: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         activations = torch.nn.functional.dropout(activations, p = self.network_config.dropout_rate, training = self.training)
         # kv_cache is modified in place
-        activations = norm(activations + self.attention(activations, kv_cache = kv_cache, index = index))
+        activations = norm(activations + self.parallel_mru())
         activations = norm(activations + self.mlp(activations))
-        return activations, kv_cache
+        return activations, state
 
 
 
@@ -122,7 +124,7 @@ class mrun_network(torch.nn.Module):
         self.embedding_scale_constant = torch.nn.Parameter(torch.tensor([1 / math.sqrt(config.embedding_size)]), requires_grad=False)
 
     # index should start at 0
-    def forward(self, encodings: torch.Tensor, state: list[torch.Tensor, torch.Tensor]) -> Optional[tuple[torch.Tensor, list[tuple[torch.Tensor, torch.Tensor]]]]:
+    def forward(self, encodings: torch.Tensor, state: list[torch.Tensor, torch.Tensor]) -> tuple[torch.Tensor, list[torch.Tensor]]:
 
         embeddings = self.wte(encodings)
 
@@ -134,5 +136,5 @@ class mrun_network(torch.nn.Module):
         return logits, state
         
     
-    def get_initial_state(self) -> list[tuple[torch.Tensor, torch.Tensor]]:
+    def get_initial_state(self) -> list[torch.Tensor]:
         return ([block.initial_state for block in self.blocks])
