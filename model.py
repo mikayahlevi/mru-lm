@@ -48,10 +48,7 @@ class parallel_mru_class(torch.autograd.Function):
         ctx.save_for_backward(input_state, start_matrix_states, final_matrix_states)
         ctx.sequence_length = sequence_length
 
-        print(input_state.size())
-        print(final_matrix_states.size())
-
-        return input_state @ final_matrix_states
+        return (input_state.unsqueeze(-2).unsqueeze(-2) @ final_matrix_states).squeeze(-2)
 
     @staticmethod
     def backward(ctx, grad_output):
@@ -78,9 +75,8 @@ class parallel_mru_class(torch.autograd.Function):
 
         transposed_final_matrix_states = final_matrix_states.transpose(-1, -2)
 
-
-        grad_input_state = (grad_output.unsqueeze(-2) @ transposed_final_matrix_states).sum(dim = -2)
-        grad_final_matrix_states = input_state.unsqueeze(-1) * grad_output.unsqueeze(-2)
+        grad_input_state = (grad_output.unsqueeze(-2) @ transposed_final_matrix_states).sum(dim = -3).squeeze(-2)
+        grad_final_matrix_states = input_state.unsqueeze(-1).unsqueeze(-3) * grad_output.unsqueeze(-2)
 
 
         grad_before_start_matrix_states = torch.cat((create_eye_for_shift(transposed_final_matrix_states.shape), transposed_final_matrix_states[..., :-1, :, :]), dim = -3)
@@ -184,8 +180,7 @@ class mrun_block(torch.nn.Module):
     
     def parallel_mru(self, activations: torch.Tensor, last_state: torch.Tensor) -> torch.Tensor:
         matrices = self.genmatrix(activations)
-
-        return parallel_mru_class.apply(last_state, matrices)
+        return parallel_mru_class.apply(last_state, matrices).transpose(-2, -3)
 
 
 
@@ -193,11 +188,9 @@ class mrun_block(torch.nn.Module):
     def forward(self, activations: torch.Tensor, last_state: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         activations = torch.nn.functional.dropout(activations, p = self.network_config.dropout_rate, training = self.training)
         out_states = self.parallel_mru(activations, last_state)
-        print(out_states.size())
-        print(out_states.size())
         activations = (activations + self.state_down(out_states.flatten(-2, -1))) * self.residule_scale
         activations = (activations + self.mlp(activations)) * self.residule_scale
-        return activations, out_states[-1]
+        return activations, out_states[..., -1, :, :]
 
 
 
