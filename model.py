@@ -122,9 +122,33 @@ class flat_relu_mlp(torch.nn.Module):
     
     def forward(self, input):
         for layer in self.layers:
-            input = torch.nn.functional.relu(layer(input))
+            input = (torch.nn.functional.elu(layer(input)) + self.mean_offset_constant) * self.std_scale_constant
+        return input
+    
 
-        return (input + self.mean_offset_constant) * self.std_scale_constant
+class genmatrix_module(torch.nn.Module):
+    def __init__(self, input_size, resolution, n_state_heads, state_head_size, lr_like = 0.01):
+        super(genmatrix_module, self).__init__()
+
+        self.resolution = resolution
+        self.input_size = input_size
+        self.n_state_heads = n_state_heads
+        self.state_head_size = state_head_size
+        self.lr_like = lr_like
+
+        self.query_layer = torch.nn.Linear(input_size, resolution * n_state_heads * state_head_size, bias = False)
+        self.value_layer = torch.nn.Linear(input_size, resolution * n_state_heads * state_head_size, bias = False)
+
+        torch.nn.init.normal_(self.query_layer.weight, mean = 0, std = 1 / math.sqrt(input_size))
+        torch.nn.init.normal_(self.value_layer.weight, mean = 0, std = 1 / math.sqrt(input_size))
+
+    def forward(self, input):
+        queries = self.query_layer(input).unflatten(-1, (self.resolution, self.n_state_heads, self.state_head_size))
+        values = self.value_layer(input).unflatten(-1, (self.resolution, self.n_state_heads, self.state_head_size))
+
+        matrices = (queries.unsqueeze(-1) @ values.unsqueeze(-2))
+
+        return torch.eye(self.state_head_size) + matrices.sum(dim = -4) * self.lr_like
 
 
 
@@ -138,37 +162,35 @@ class mrun_block(torch.nn.Module):
 
         if block_config.state_size % block_config.n_state_heads != 0:
             raise ValueError("state size must be divisible by the number of state heads")
-        self.state_size = block_config.hidden_size // block_config.n_attn_heads
+        self.state_size = block_config.intermediate_size // block_config.n_attn_heads
 
 
+        self.genmatrix = genmatrix_module(block_config.intermediate_size, 8, block_config.n_state_heads, block_config.state_size)
 
-        hidden_scale = 1 / math.sqrt(network_config.embedding_size)
-        attention_scale = 0.25
-        torch.nn.init.normal_(self.query_layer.weight, mean = 0, std = attention_scale * hidden_scale)
-        torch.nn.init.normal_(self.key_layer.weight, mean = 0, std = attention_scale * hidden_scale)
-        torch.nn.init.normal_(self.value_layer.weight, mean = 0, std = hidden_scale)
+        self.state_down = torch.nn.Linear(block_config.state_size, block_config.intermediate_size, bias = False)
+        torch.nn.init.normal_(self.state_down.weight, mean = 0, std = 1 / math.sqrt(block_config.value_size))
 
-
-        self.attention_down = torch.nn.Linear(block_config.value_size, network_config.embedding_size, bias = False)
-        torch.nn.init.normal_(self.attention_down.weight, mean = 0, std = 1 / math.sqrt(block_config.value_size))
+        self.mlp = flat_elu_mlp(block_config.intermediate_size, 3)
         
-
-        self.mlp = flat_relu_mlp(network_config.embedding_size, block_config.n_mlp_layers)
-
 
         self.residule_scale = torch.nn.Parameter(torch.tensor([1 / math.sqrt(2)]), requires_grad=False)
 
         self.initial_state = torch.nn.Parameter(torch.normal(mean = 0, std = 1, size = (block_config.n_state_heads, block_config.state_size)), requires_grad=True)
     
-    def parallel_mru():
-        pass
+    def parallel_mru(self, activations: torch.Tensor, last_state: torch.Tensor) -> torch.Tensor:
+        matrices = self.genmatrix(activations)
 
-    def forward(self, activations: torch.Tensor, state: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        return parallel_mru_class.apply(last_state, matrices)
+
+
+
+
+    def forward(self, activations: torch.Tensor, last_state: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         activations = torch.nn.functional.dropout(activations, p = self.network_config.dropout_rate, training = self.training)
-        # kv_cache is modified in place
-        activations = norm(activations + self.parallel_mru())
-        activations = norm(activations + self.mlp(activations))
-        return activations, state
+        out_states = self.parallel_mru(activations, last_state)
+        activations = (activations + self.state_down(out_states.flatten(-2, -1))) * self.residule_scale
+        activations = (activations + self.mlp(activations)) * self.residule_scale
+        return activations, out_states[-1]
 
 
 
@@ -192,16 +214,16 @@ class mrun_network(torch.nn.Module):
         self.embedding_scale_constant = torch.nn.Parameter(torch.tensor([1 / math.sqrt(config.embedding_size)]), requires_grad=False)
 
     # index should start at 0
-    def forward(self, encodings: torch.Tensor, state: list[torch.Tensor, torch.Tensor]) -> tuple[torch.Tensor, list[torch.Tensor]]:
+    def forward(self, encodings: torch.Tensor, last_state: list[torch.Tensor, torch.Tensor]) -> tuple[torch.Tensor, list[torch.Tensor]]:
 
         embeddings = self.wte(encodings)
 
         for i, block in enumerate(self.blocks):
-            embeddings, state[i] = block.forward(embeddings, state[i])
+            embeddings, last_state[i] = block.forward(embeddings, last_state[i])
         
         logits = torch.nn.functional.linear(embeddings, weight = self.lm_head_weights * self.embedding_scale_constant)
 
-        return logits, state
+        return logits, last_state
         
     
     def get_initial_state(self) -> list[torch.Tensor]:
