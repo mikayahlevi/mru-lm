@@ -79,10 +79,19 @@ class parallel_mru_class(torch.autograd.Function):
         grad_final_matrix_states = input_state.unsqueeze(-1).unsqueeze(-3) * grad_output.unsqueeze(-2)
 
 
-        grad_before_start_matrix_states = torch.cat((create_eye_for_shift(transposed_final_matrix_states.shape), transposed_final_matrix_states[..., :-1, :, :]), dim = -3)
+        # grad_before_start_matrix_states = torch.cat((create_eye_for_shift(transposed_final_matrix_states.shape), transposed_final_matrix_states[..., :-1, :, :]), dim = -3)
+        # faster implementation
+
+        grad_before_start_matrix_states = transposed_final_matrix_states.roll(1, dims = -3)
+        grad_before_start_matrix_states[..., 0, :, :] = torch.eye(grad_before_start_matrix_states.size(-2), device = grad_before_start_matrix_states.device)
 
 
-        tl = torch.cat((start_matrix_states[..., 1:, :, :], create_zeros_for_shift(start_matrix_states.shape)), dim = -3).transpose(-1, -2)
+        # tl = torch.cat((start_matrix_states[..., 1:, :, :], create_zeros_for_shift(start_matrix_states.shape)), dim = -3).transpose(-1, -2)
+        # faster implementation
+
+        tl = start_matrix_states.roll(-1, dims = -3).transpose(-1, -2)
+        tl[..., -1, :, :] = torch.zeros((tl.size(-2), tl.size(-1)), device = tl.device)
+
         bl = grad_final_matrix_states
 
         sequence_length = ctx.sequence_length
@@ -126,7 +135,7 @@ class flat_relu_mlp(torch.nn.Module):
     
 
 class genmatrix_module(torch.nn.Module):
-    def __init__(self, input_size, resolution, n_state_heads, state_head_size, lr_like = 0.005):
+    def __init__(self, input_size, resolution, n_state_heads, state_head_size, lr_like = 0.002):
         super(genmatrix_module, self).__init__()
 
         self.resolution = resolution
