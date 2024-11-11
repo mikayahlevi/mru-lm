@@ -101,7 +101,8 @@ def format_info(info):
 
 
 def train(settings, hyperparameters, model, dataset, tokenizer, device):
-    print(colorama.Fore.GREEN, 'starting training')
+    print(colorama.Fore.GREEN)
+    print('starting training')
     print(colorama.Style.RESET_ALL, end='')
 
 
