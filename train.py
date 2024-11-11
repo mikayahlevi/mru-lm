@@ -75,11 +75,11 @@ def configure_optimizer(model, hyperparameters):
 
     optim_groups = [
         {
-            'params': get_params_with_names(model.named_parameters(), ['ln.weight', 'wte.weight']),
+            'params': remove_params_with_names(model.named_parameters(), nodecay_param_names),
             'weight_decay': hyperparameters.weight_decay
         },
         {
-            'params': remove_params_with_names(model.named_parameters(), nodecay_param_names),
+            'params': get_params_with_names(model.named_parameters(), nodecay_param_names),
             'weight_decay': 0.0
         }
     ]
