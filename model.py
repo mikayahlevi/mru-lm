@@ -10,7 +10,8 @@ from dataclasses import dataclass
 
 @dataclass
 class mrun_block_config:
-    n_attn_heads: int
+    n_state_heads: int
+    state_size: int
 
     key_size: int
     value_size: int
@@ -67,17 +68,9 @@ class mrun_block(torch.nn.Module):
         self.network_config = network_config
 
 
-        if block_config.key_size % block_config.n_attn_heads != 0:
-            raise ValueError("key size must be divisible by the number of attention heads")
-        self.key_head_size = block_config.key_size // block_config.n_attn_heads
-
-        if block_config.value_size % block_config.n_attn_heads != 0:
-            raise ValueError("value size must be divisible by the number of attention heads")
-        self.value_head_size = block_config.value_size // block_config.n_attn_heads
-
-        self.query_layer = torch.nn.Linear(network_config.embedding_size, block_config.key_size, bias = False)
-        self.key_layer = torch.nn.Linear(network_config.embedding_size, block_config.key_size, bias = False)
-        self.value_layer = torch.nn.Linear(network_config.embedding_size, block_config.value_size, bias = False)
+        if block_config.state_size % block_config.n_state_heads != 0:
+            raise ValueError("state size must be divisible by the number of state heads")
+        self.state_size = block_config.hidden_size // block_config.n_attn_heads
 
 
 
@@ -95,73 +88,9 @@ class mrun_block(torch.nn.Module):
         self.mlp = flat_relu_mlp(network_config.embedding_size, block_config.n_mlp_layers)
 
 
-        self.position_embedding = xpos(self.key_head_size, max_sequence_length = network_config.max_sequence_length)
+        self.residule_scale = torch.nn.Parameter(torch.tensor([1 / math.sqrt(2)]), requires_grad=False)
 
-    
-
-    def get_full_kv(self, incoming_kv, kv_cache, index) -> tuple[tuple[torch.Tensor, torch.Tensor], Optional[torch.Tensor]]:
-        if kv_cache is None:
-            return incoming_kv, None
-        else:
-            incoming_keys, incoming_values = incoming_kv
-            cache_keys, cache_values = kv_cache
-
-            incoming_sequence_length = incoming_keys.size(-3)
-            cache_sequence_length = index
-            total_sequence_length = incoming_sequence_length + cache_sequence_length
-            max_sequence_length = cache_keys.size(-3)
-
-            if total_sequence_length > max_sequence_length:
-                raise ValueError("total sequence length is larger than the maximum sequence length of the cache")
-            elif total_sequence_length == max_sequence_length and index == 0:
-                return (incoming_keys, incoming_values), None
-            elif total_sequence_length == max_sequence_length:
-                keys = torch.cat((cache_keys[..., :cache_sequence_length, :, :], incoming_keys), dim = -3)
-                values = torch.cat((cache_values[..., :cache_sequence_length, :, :], incoming_values), dim = -3)
-
-                mask = torch.ones(incoming_sequence_length, total_sequence_length, dtype = torch.bool, device = keys.device).triu()
-
-                return (keys, values), mask
-            elif index == 0:
-                cache_keys[..., :incoming_sequence_length, :, :] = incoming_keys
-                cache_values[..., :incoming_sequence_length, :, :] = incoming_values
-
-                return (incoming_keys, incoming_values), None
-            else:
-
-                keys = torch.cat((cache_keys[..., :cache_sequence_length, :, :], incoming_keys), dim = -3)
-                values = torch.cat((cache_values[..., :cache_sequence_length, :, :], incoming_values), dim = -3)
-
-                cache_keys[..., cache_sequence_length:total_sequence_length, :, :] = incoming_keys
-                cache_values[..., cache_sequence_length:total_sequence_length, :, :] = incoming_values
-
-                # custom mask so that it can pay attention to the cached tokens
-                mask = torch.ones(incoming_sequence_length, total_sequence_length, dtype = torch.bool, device = keys.device).triu()
-
-                return (keys, values), mask
-
-
-    def attention(self, activations, kv_cache, index):
-        queries = self.query_layer(activations).unflatten(-1, (self.block_config.n_attn_heads, self.key_head_size))
-
-        incoming_keys = self.key_layer(activations).unflatten(-1, (self.block_config.n_attn_heads, self.key_head_size))
-        incoming_values = self.value_layer(activations).unflatten(-1, (self.block_config.n_attn_heads, self.value_head_size))
-
-        queries, incoming_keys = self.position_embedding(queries, incoming_keys, index, index + queries.size(-3))
-
-        (keys, values), mask = self.get_full_kv((incoming_keys, incoming_values), kv_cache, index)
-
-        attention = torch.nn.functional.scaled_dot_product_attention(
-            queries.transpose(-3, -2),
-            keys.transpose(-3, -2),
-            values.transpose(-3, -2),
-            is_causal = (mask is None),
-            dropout_p = self.network_config.dropout_rate,
-            attn_mask = mask
-        # transpose to switch the sequence and head dimensions
-        ).transpose(-3, -2).flatten(-2)
-        
-        return self.attention_down(attention)
+        self.initial_state = torch.nn.Parameter(torch.normal(mean = 0, std = 1, size = (block_config.n_state_heads, block_config.state_size)), requires_grad=True)
     
 
     def forward(self, activations: torch.Tensor, kv_cache: Optional[tuple[torch.Tensor, torch.Tensor]], index) -> tuple[torch.Tensor, tuple[torch.Tensor, torch.Tensor]]:
@@ -193,25 +122,17 @@ class mrun_network(torch.nn.Module):
         self.embedding_scale_constant = torch.nn.Parameter(torch.tensor([1 / math.sqrt(config.embedding_size)]), requires_grad=False)
 
     # index should start at 0
-    def forward(self, encodings: torch.Tensor, kv_cache: Optional[list[tuple[torch.Tensor, torch.Tensor]]] = None, index: int = 0) -> Optional[tuple[torch.Tensor, list[tuple[torch.Tensor, torch.Tensor]]]]:
+    def forward(self, encodings: torch.Tensor, state: list[torch.Tensor, torch.Tensor]) -> Optional[tuple[torch.Tensor, list[tuple[torch.Tensor, torch.Tensor]]]]:
 
         embeddings = self.wte(encodings)
 
         for i, block in enumerate(self.blocks):
-            if kv_cache is None:
-                embeddings, _ = block.forward(embeddings, None, index)
-            else:
-                embeddings, kv_cache[i] = block.forward(embeddings, kv_cache[i], index)
+            embeddings, state[i] = block.forward(embeddings, state[i])
         
         logits = torch.nn.functional.linear(embeddings, weight = self.lm_head_weights * self.embedding_scale_constant)
 
-        return logits, kv_cache  
+        return logits, state
         
     
-    def get_empty_kv_cache(self, batch_size: int, sequence_length: int, device) -> list[tuple[torch.Tensor, torch.Tensor]]:
-        return ([
-            (
-                torch.empty(batch_size, sequence_length, block.block_config.n_attn_heads, block.key_head_size, device = device).squeeze(-4),
-                torch.empty(batch_size, sequence_length, block.block_config.n_attn_heads, block.value_head_size, device = device).squeeze(-4)
-            )
-        for block in self.blocks])
+    def get_initial_state(self) -> list[tuple[torch.Tensor, torch.Tensor]]:
+        return ([block.initial_state for block in self.blocks])
