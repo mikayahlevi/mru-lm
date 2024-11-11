@@ -9,7 +9,7 @@ from dataclasses import dataclass
 
 
 @dataclass
-class transformer_block_config:
+class mrun_block_config:
     n_attn_heads: int
 
     key_size: int
@@ -20,7 +20,7 @@ class transformer_block_config:
 
 
 @dataclass
-class transformer_network_config:
+class mrun_network_config:
     vocab_size: int
     embedding_size: int
 
@@ -28,51 +28,7 @@ class transformer_network_config:
 
     max_sequence_length: int
     
-    block_configs: list[transformer_block_config]
-
-
-def norm(input: torch.Tensor) -> torch.Tensor:
-    return input / input.std(dim = -1, keepdim = True)
-
-
-
-class xpos(torch.nn.Module):
-    def __init__(self, key_head_size: int, max_sequence_length: int = 1024):
-        super(xpos, self).__init__()
-
-        if key_head_size % 2 != 0:
-            raise ValueError("key head size must be divisible by 2 for the positional embedding")
-
-        theta_base = 10000
-        alpha = 0.4 * key_head_size
-
-        drange = torch.arange(start = 2, end = key_head_size + 2, step = 2, dtype = torch.float32)
-        theta = torch.pow(1 / theta_base, drange / key_head_size).repeat_interleave(2)
-        zeta = ((drange / (key_head_size / 2) + alpha) / (1 + alpha)).repeat_interleave(2)
-        # no effect except for numerical stability
-        scale_base = 512
-        # no effect except for numerical stability
-        half_max_sequence_length = max_sequence_length // 2
-
-        seq_range = torch.arange(- half_max_sequence_length, max_sequence_length - half_max_sequence_length, dtype = torch.float32).view(-1, 1, 1) / scale_base
-
-        self.c = torch.nn.Parameter(torch.cos(seq_range * theta.view(1, 1, -1)), requires_grad=False)
-        self.s = torch.nn.Parameter(torch.sin(seq_range * theta.view(1, 1, -1)), requires_grad=False)
-        self.t = torch.nn.Parameter((zeta.view(1, 1, -1) ** seq_range), requires_grad=False)
-        self.invt = torch.nn.Parameter(1 / self.t, requires_grad=False)
-
-
-
-    def rotate_every_two(self, input: torch.Tensor) -> torch.Tensor:
-        return torch.stack((-input[..., 1::2], input[..., 0::2]), dim = -1).flatten(-2)
-
-
-    def forward(self, queries, keys, start, end) -> tuple[torch.Tensor, torch.Tensor]:
-        queries = (queries * self.c[start:end] + self.rotate_every_two(queries) * self.s[start:end]) * self.t[start:end]
-        keys = (keys * self.c[start:end] + self.rotate_every_two(keys) * self.s[start:end]) * self.invt[start:end]
-
-
-        return queries, keys
+    block_configs: list[mrun_block_config]
 
 
 class flat_relu_mlp(torch.nn.Module):
@@ -103,9 +59,9 @@ class flat_relu_mlp(torch.nn.Module):
 
 
 
-class transformer_block(torch.nn.Module):
-    def __init__(self, network_config: transformer_network_config, block_config: transformer_block_config):
-        super(transformer_block, self).__init__()
+class mrun_block(torch.nn.Module):
+    def __init__(self, network_config: mrun_network_config, block_config: mrun_block_config):
+        super(mrun_block, self).__init__()
 
         self.block_config = block_config
         self.network_config = network_config
@@ -219,14 +175,14 @@ class transformer_block(torch.nn.Module):
 
 
     
-class transformer_network(torch.nn.Module):
-    def __init__(self, config: transformer_network_config):
-        super(transformer_network, self).__init__()
+class mrun_network(torch.nn.Module):
+    def __init__(self, config: mrun_network_config):
+        super(mrun_network, self).__init__()
 
         self.config = config
 
         
-        self.blocks = torch.nn.ModuleList([transformer_block(config, block_config) for block_config in config.block_configs])
+        self.blocks = torch.nn.ModuleList([mrun_block(config, block_config) for block_config in config.block_configs])
         
         
         self.wte = torch.nn.Embedding(config.vocab_size, config.embedding_size)

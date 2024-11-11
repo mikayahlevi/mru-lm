@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from matplotlib import pyplot
 from typing import Optional
 
-from model import transformer_network, transformer_network_config, transformer_block_config
+from model import mrun_network, transformer_network_config, transformer_block_config
 from sample import sample
 
 
