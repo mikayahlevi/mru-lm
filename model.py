@@ -114,7 +114,7 @@ class transformer_block(torch.nn.Module):
         self.key_layer = torch.nn.Linear(block_config.hidden_size, block_config.key_size, bias = False)
         self.value_layer = torch.nn.Linear(block_config.hidden_size, block_config.value_size, bias = False)
 
-        hidden_scale_constant = math.sqrt(1 / math.sqrt(block_config.hidden_size))
+        hidden_scale_constant = 1 / math.sqrt(block_config.hidden_size)
         torch.nn.init.normal_(self.query_layer.weight, mean = 0, std = hidden_scale_constant)
         torch.nn.init.normal_(self.key_layer.weight, mean = 0, std = hidden_scale_constant)
         torch.nn.init.normal_(self.value_layer.weight, mean = 0, std = hidden_scale_constant)
