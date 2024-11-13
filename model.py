@@ -80,11 +80,11 @@ class transformer_block(torch.nn.Module):
 
         if block_config.key_size % block_config.n_attn_heads != 0:
             raise ValueError("key size must be divisible by the number of attention heads")
-        self.key_head_size = block_config.hidden_size // block_config.n_attn_heads
+        self.key_head_size = block_config.key_size // block_config.n_attn_heads
 
         if block_config.value_size % block_config.n_attn_heads != 0:
             raise ValueError("value size must be divisible by the number of attention heads")
-        self.value_head_size = block_config.hidden_size // block_config.n_attn_heads
+        self.value_head_size = block_config.value_size // block_config.n_attn_heads
 
 
 
