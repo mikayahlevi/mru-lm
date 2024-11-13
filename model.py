@@ -109,8 +109,8 @@ class transformer_block(torch.nn.Module):
         torch.nn.init.normal_(self.key_layer.weight, mean = 0, std = 0.02)
         torch.nn.init.normal_(self.value_layer.weight, mean = 0, std = 0.02)
 
-        self.attention_linear = torch.nn.Linear(block_config.value_size, network_config.embedding_size, bias = False)
-        torch.nn.init.normal_(self.attention_linear.weight, mean = 0, std = 0.02 / math.sqrt(len(network_config.block_configs)))
+        self.attention_down = torch.nn.Linear(block_config.value_size, network_config.embedding_size, bias = False)
+        torch.nn.init.normal_(self.attention_down.weight, mean = 0, std = 0.02 / math.sqrt(len(network_config.block_configs)))
 
         self.position_embedding = xpos(self.key_head_size, max_sequence_length = network_config.max_sequence_length)
     
@@ -184,7 +184,7 @@ class transformer_block(torch.nn.Module):
 
 
         activations = activations + torch.nn.functional.dropout(
-            self.attention_linear(
+            self.attention_down(
                 attention.flatten(-2)
             ), 
             p = self.network_config.dropout_rate,
