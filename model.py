@@ -12,7 +12,6 @@ from dataclasses import dataclass
 class transformer_block_config:
     n_attn_heads: int
 
-    hidden_size: int
     key_size: int
     value_size: int
 
