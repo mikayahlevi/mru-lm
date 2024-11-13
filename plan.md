@@ -1,0 +1,12 @@
+- [ ] implement grokfast
+  - https://arxiv.org/abs/2405.20233
+  - https://github.com/ironjr/grokfast
+- [ ] change multipliers to inits
+- [ ] review changing residule connections
+  - Residual Connections Harm Self-Supervised Abstract Feature Learning
+  - https://arxiv.org/abs/2404.10947
+- [ ] test minGRU
+  - https://arxiv.org/abs/2410.01201
+  - [ ] test using matrices for minGRU to transform input
+- [ ] test Quiet-STaR
+  - https://arxiv.org/abs/2403.09629
