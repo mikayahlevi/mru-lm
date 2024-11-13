@@ -125,6 +125,8 @@ class transformer_block(torch.nn.Module):
         
         self.mlp = flat_elu_mlp(block_config.hidden_size, 3)
 
+        self.attention_down = torch.nn.Linear(block_config.value_size, network_config.embedding_size, bias = False)
+        torch.nn.init.normal_(self.attention_down.weight, mean = 0, std = 0.02 / math.sqrt(len(network_config.block_configs)))
 
         self.position_embedding = xpos(self.key_head_size, max_sequence_length = network_config.max_sequence_length)
 
