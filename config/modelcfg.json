@@ -5,37 +5,31 @@
     "block_configs": [
         {
             "n_attn_heads": 6,
-            "hidden_size": 384,
             "key_size": 384,
             "value_size": 384
         },
         {
             "n_attn_heads": 6,
-            "hidden_size": 384,
             "key_size": 384,
             "value_size": 384
         },
         {
             "n_attn_heads": 6,
-            "hidden_size": 384,
             "key_size": 384,
             "value_size": 384
         },
         {
             "n_attn_heads": 6,
-            "hidden_size": 384,
             "key_size": 384,
             "value_size": 384
         },
         {
             "n_attn_heads": 6,
-            "hidden_size": 384,
             "key_size": 384,
             "value_size": 384
         },
         {
             "n_attn_heads": 6,
-            "hidden_size": 384,
             "key_size": 384,
             "value_size": 384
         }
