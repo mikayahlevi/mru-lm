@@ -107,9 +107,6 @@ class transformer_block(torch.nn.Module):
             raise ValueError("value size must be divisible by the number of attention heads")
         self.value_head_size = block_config.hidden_size // block_config.n_attn_heads
 
-
-        self.mlp = flat_elu_mlp(block_config.hidden_size, 3)
-
         self.query_layer = torch.nn.Linear(block_config.hidden_size, block_config.key_size, bias = False)
         self.key_layer = torch.nn.Linear(block_config.hidden_size, block_config.key_size, bias = False)
         self.value_layer = torch.nn.Linear(block_config.hidden_size, block_config.value_size, bias = False)
@@ -119,12 +116,17 @@ class transformer_block(torch.nn.Module):
         torch.nn.init.normal_(self.key_layer.weight, mean = 0, std = hidden_scale_constant)
         torch.nn.init.normal_(self.value_layer.weight, mean = 0, std = hidden_scale_constant)
 
-        self.attention_linear = torch.nn.Linear(block_config.value_size, block_config.hidden_size, bias = False)
-        torch.nn.init.normal_(self.attention_linear.weight, mean = 0, std = 1 / math.sqrt(block_config.value_size))
+
+        self.residule_scale = torch.nn.Parameter(torch.tensor([1 / math.sqrt(2)]), requires_grad=False)
+
+        self.attention_down = torch.nn.Linear(block_config.value_size, block_config.hidden_size, bias = False)
+        torch.nn.init.normal_(self.attention_down.weight, mean = 0, std = 1 / math.sqrt(block_config.value_size))
+        
+        self.mlp = flat_elu_mlp(block_config.hidden_size, 3)
+
 
         self.position_embedding = xpos(self.key_head_size, max_sequence_length = network_config.max_sequence_length)
 
-        self.residule_scale = torch.nn.Parameter(torch.tensor([1 / math.sqrt(2)]), requires_grad=False)
     
 
     def get_full_kv(self, incoming_kv, kv_cache, index) -> tuple[tuple[torch.Tensor, torch.Tensor], Optional[torch.Tensor]]:
@@ -188,7 +190,7 @@ class transformer_block(torch.nn.Module):
         # transpose to switch the sequence and head dimensions
         ).transpose(-3, -2).flatten(-2)
         
-        return self.attention_linear(attention / attention.std(dim = -1, keepdim = True))
+        return self.attention_down(attention / attention.std(dim = -1, keepdim = True))
     
 
     def forward(self, activations: torch.Tensor, kv_cache: Optional[tuple[torch.Tensor, torch.Tensor]], index) -> tuple[torch.Tensor, tuple[torch.Tensor, torch.Tensor]]:
