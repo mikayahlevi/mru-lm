@@ -113,7 +113,7 @@ class transformer_block(torch.nn.Module):
 
 
         hidden_scale_constant = 1 / math.sqrt(block_config.hidden_size)
-        attention_entropy = 0.25
+        attention_entropy = 0.5
         torch.nn.init.normal_(self.query_layer.weight, mean = 0, std = attention_entropy * hidden_scale_constant)
         torch.nn.init.normal_(self.key_layer.weight, mean = 0, std = attention_entropy * hidden_scale_constant)
         torch.nn.init.normal_(self.value_layer.weight, mean = 0, std = hidden_scale_constant)
