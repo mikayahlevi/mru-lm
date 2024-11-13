@@ -6,32 +6,38 @@
         {
             "n_attn_heads": 6,
             "key_size": 384,
-            "value_size": 384
+            "value_size": 384,
+            "n_mlp_layers": 3
         },
         {
             "n_attn_heads": 6,
             "key_size": 384,
-            "value_size": 384
+            "value_size": 384,
+            "n_mlp_layers": 3
         },
         {
             "n_attn_heads": 6,
             "key_size": 384,
-            "value_size": 384
+            "value_size": 384,
+            "n_mlp_layers": 3
         },
         {
             "n_attn_heads": 6,
             "key_size": 384,
-            "value_size": 384
+            "value_size": 384,
+            "n_mlp_layers": 3
         },
         {
             "n_attn_heads": 6,
             "key_size": 384,
-            "value_size": 384
+            "value_size": 384,
+            "n_mlp_layers": 3
         },
         {
             "n_attn_heads": 6,
             "key_size": 384,
-            "value_size": 384
+            "value_size": 384,
+            "n_mlp_layers": 3
         }
     ]
 }

@@ -15,6 +15,8 @@ class transformer_block_config:
     key_size: int
     value_size: int
 
+    n_mlp_layers: int
+
 
 
 @dataclass
@@ -125,7 +127,7 @@ class transformer_block(torch.nn.Module):
 
         self.residule_scale = torch.nn.Parameter(torch.tensor([1 / math.sqrt(2)]), requires_grad=False)
 
-        self.mlp = flat_elu_mlp(network_config.embedding_size, 3)
+        self.mlp = flat_elu_mlp(network_config.embedding_size, block_config.n_mlp_layers)
 
 
         self.position_embedding = xpos(self.key_head_size, max_sequence_length = network_config.max_sequence_length)
