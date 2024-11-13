@@ -88,28 +88,28 @@ class transformer_block(torch.nn.Module):
 
 
 
-        self.first_ln = torch.nn.LayerNorm(block_config.hidden_size, bias = False)
-        self.second_ln = torch.nn.LayerNorm(block_config.hidden_size, bias = False)
+        self.first_ln = torch.nn.LayerNorm(network_config.embedding_size, bias = False)
+        self.second_ln = torch.nn.LayerNorm(network_config.embedding_size, bias = False)
 
         self.mlp = torch.nn.Sequential(
-            torch.nn.Linear(block_config.hidden_size, block_config.hidden_size * 4, bias = False),
+            torch.nn.Linear(network_config.embedding_size, network_config.embedding_size * 4, bias = False),
             torch.nn.GELU(),
-            torch.nn.Linear(block_config.hidden_size * 4, block_config.hidden_size, bias = False)
+            torch.nn.Linear(network_config.embedding_size * 4, network_config.embedding_size, bias = False)
         )
 
         torch.nn.init.normal_(self.mlp[0].weight, mean = 0, std = 0.02)
         torch.nn.init.normal_(self.mlp[2].weight, mean = 0, std = 0.02 / math.sqrt(len(network_config.block_configs)))
 
 
-        self.query_layer = torch.nn.Linear(block_config.hidden_size, block_config.key_size, bias = False)
-        self.key_layer = torch.nn.Linear(block_config.hidden_size, block_config.key_size, bias = False)
-        self.value_layer = torch.nn.Linear(block_config.hidden_size, block_config.value_size, bias = False)
+        self.query_layer = torch.nn.Linear(network_config.embedding_size, block_config.key_size, bias = False)
+        self.key_layer = torch.nn.Linear(network_config.embedding_size, block_config.key_size, bias = False)
+        self.value_layer = torch.nn.Linear(network_config.embedding_size, block_config.value_size, bias = False)
 
         torch.nn.init.normal_(self.query_layer.weight, mean = 0, std = 0.02)
         torch.nn.init.normal_(self.key_layer.weight, mean = 0, std = 0.02)
         torch.nn.init.normal_(self.value_layer.weight, mean = 0, std = 0.02)
 
-        self.attention_linear = torch.nn.Linear(block_config.value_size, block_config.hidden_size, bias = False)
+        self.attention_linear = torch.nn.Linear(block_config.value_size, network_config.embedding_size, bias = False)
         torch.nn.init.normal_(self.attention_linear.weight, mean = 0, std = 0.02 / math.sqrt(len(network_config.block_configs)))
 
         self.position_embedding = xpos(self.key_head_size, max_sequence_length = network_config.max_sequence_length)
