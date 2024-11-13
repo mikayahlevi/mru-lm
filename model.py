@@ -106,25 +106,18 @@ class transformer_block(torch.nn.Module):
             raise ValueError("value size must be divisible by the number of attention heads")
         self.value_head_size = block_config.value_size // block_config.n_attn_heads
 
-        self.query_layer = torch.nn.Linear(block_config.hidden_size, block_config.key_size, bias = False)
-        self.key_layer = torch.nn.Linear(block_config.hidden_size, block_config.key_size, bias = False)
-        self.value_layer = torch.nn.Linear(block_config.hidden_size, block_config.value_size, bias = False)
+        self.query_layer = torch.nn.Linear(network_config.embedding_size, block_config.key_size, bias = False)
+        self.key_layer = torch.nn.Linear(network_config.embedding_size, block_config.key_size, bias = False)
+        self.value_layer = torch.nn.Linear(network_config.embedding_size, block_config.value_size, bias = False)
 
 
 
-        hidden_scale_constant = 1 / math.sqrt(block_config.hidden_size)
+        hidden_scale_constant = 1 / math.sqrt(network_config.embedding_size)
         attention_entropy = 0.5
         torch.nn.init.normal_(self.query_layer.weight, mean = 0, std = attention_entropy * hidden_scale_constant)
         torch.nn.init.normal_(self.key_layer.weight, mean = 0, std = attention_entropy * hidden_scale_constant)
         torch.nn.init.normal_(self.value_layer.weight, mean = 0, std = hidden_scale_constant)
 
-
-        self.residule_scale = torch.nn.Parameter(torch.tensor([1 / math.sqrt(2)]), requires_grad=False)
-
-        self.attention_down = torch.nn.Linear(block_config.value_size, block_config.hidden_size, bias = False)
-        torch.nn.init.normal_(self.attention_down.weight, mean = 0, std = 1 / math.sqrt(block_config.value_size))
-        
-        self.mlp = flat_elu_mlp(block_config.hidden_size, 3)
 
         self.attention_down = torch.nn.Linear(block_config.value_size, network_config.embedding_size, bias = False)
         torch.nn.init.normal_(self.attention_down.weight, mean = 0, std = 1 / math.sqrt(block_config.value_size))
@@ -132,7 +125,7 @@ class transformer_block(torch.nn.Module):
 
         self.residule_scale = torch.nn.Parameter(torch.tensor([1 / math.sqrt(2)]), requires_grad=False)
 
-        self.mlp = flat_elu_mlp(block_config.hidden_size, 3)
+        self.mlp = flat_elu_mlp(network_config.embedding_size, 3)
 
 
         self.position_embedding = xpos(self.key_head_size, max_sequence_length = network_config.max_sequence_length)
