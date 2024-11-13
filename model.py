@@ -129,6 +129,11 @@ class transformer_block(torch.nn.Module):
         torch.nn.init.normal_(self.attention_down.weight, mean = 0, std = 1 / math.sqrt(block_config.value_size))
         
 
+        self.residule_scale = torch.nn.Parameter(torch.tensor([1 / math.sqrt(2)]), requires_grad=False)
+
+        self.mlp = flat_elu_mlp(block_config.hidden_size, 3)
+
+
         self.position_embedding = xpos(self.key_head_size, max_sequence_length = network_config.max_sequence_length)
 
     
