@@ -2,8 +2,6 @@ import torch
 import numpy as np
 
 import time
-import math
-import os
 import colorama
 
 
@@ -279,6 +277,9 @@ def train(settings, hyperparameters, model, dataset, tokenizer, device):
                     pyplot.title('Loss vs. Step')
                     pyplot.xlabel('Step')
                     pyplot.ylabel('Loss')
+
+                    # set the legend
+                    pyplot.legend()
                     
                     # save the plot
                     pyplot.savefig(settings.train_run_path + '/stats/loss plot.png')
