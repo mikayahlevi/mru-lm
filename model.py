@@ -82,12 +82,12 @@ class flat_elu_mlp(torch.nn.Module):
         for layer in self.layers:
             torch.nn.init.normal_(layer.weight, mean = 0, std = 1 / math.sqrt(intermediate_size))
 
-        self.mean_offset_constant = torch.nn.Parameter(torch.tensor([-0.160520572266]), requires_grad=False)
-        self.std_scale_constant = torch.nn.Parameter(torch.tensor([1 / 0.786879001735]), requires_grad=False)
+        self.mean_offset_constant = torch.nn.Parameter(torch.tensor([-0.398942280401]), requires_grad=False)
+        self.std_scale_constant = torch.nn.Parameter(torch.tensor([1 / 0.583796851386]), requires_grad=False)
     
     def forward(self, input):
         for layer in self.layers:
-            input = (torch.nn.functional.elu(layer(input)) + self.mean_offset_constant) * self.std_scale_constant
+            input = (torch.nn.functional.relu(layer(input)) + self.mean_offset_constant) * self.std_scale_constant
         return input
 
 
