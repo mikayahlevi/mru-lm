@@ -79,16 +79,23 @@ class flat_elu_mlp(torch.nn.Module):
             torch.nn.Linear(intermediate_size, intermediate_size, bias = False) for _ in range(n_intermediate_layers)
         ])
 
-        for layer in self.layers:
-            torch.nn.init.normal_(layer.weight, mean = 0, std = 1 / math.sqrt(intermediate_size))
+        expected_mean = 0.398942280401
+        expected_std = 0.583796851386
 
-        self.mean_offset_constant = torch.nn.Parameter(torch.tensor([-0.398942280401]), requires_grad=False)
-        self.std_scale_constant = torch.nn.Parameter(torch.tensor([1 / 0.583796851386]), requires_grad=False)
+        for layer_index, layer in enumerate(self.layers):
+            if layer_index == 0:
+                torch.nn.init.normal_(layer.weight, mean = 0, std = 1 / math.sqrt(intermediate_size))
+            else:
+                torch.nn.init.normal_(layer.weight, mean = 0, std = 1 / math.sqrt((expected_mean ** 2 + expected_std ** 2) * intermediate_size))
+
+        self.mean_offset_constant = torch.nn.Parameter(torch.tensor([-expected_mean]), requires_grad=False)
+        self.std_scale_constant = torch.nn.Parameter(torch.tensor([1 / expected_std]), requires_grad=False)
     
     def forward(self, input):
         for layer in self.layers:
-            input = (torch.nn.functional.relu(layer(input)) + self.mean_offset_constant) * self.std_scale_constant
-        return input
+            input = torch.nn.functional.relu(layer(input))
+
+        return (input + self.mean_offset_constant) * self.std_scale_constant
 
 
 
