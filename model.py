@@ -31,6 +31,10 @@ class transformer_network_config:
     block_configs: list[transformer_block_config]
 
 
+def norm(input: torch.Tensor) -> torch.Tensor:
+    return input / input.std(dim = -1, keepdim = True)
+
+
 
 class xpos(torch.nn.Module):
     def __init__(self, key_head_size: int, max_sequence_length: int = 1024):
@@ -122,7 +126,7 @@ class transformer_block(torch.nn.Module):
 
 
         hidden_scale_constant = 1 / math.sqrt(network_config.embedding_size)
-        attention_entropy = 0.1
+        attention_entropy = 0.4
         torch.nn.init.normal_(self.query_layer.weight, mean = 0, std = attention_entropy * hidden_scale_constant)
         torch.nn.init.normal_(self.key_layer.weight, mean = 0, std = attention_entropy * hidden_scale_constant)
         torch.nn.init.normal_(self.value_layer.weight, mean = 0, std = hidden_scale_constant)
@@ -131,8 +135,6 @@ class transformer_block(torch.nn.Module):
         self.attention_down = torch.nn.Linear(block_config.value_size, network_config.embedding_size, bias = False)
         torch.nn.init.normal_(self.attention_down.weight, mean = 0, std = 1 / math.sqrt(block_config.value_size))
         
-
-        self.residule_scale = torch.nn.Parameter(torch.tensor([1 / math.sqrt(2)]), requires_grad=False)
 
         self.mlp = flat_elu_mlp(network_config.embedding_size, block_config.n_mlp_layers)
 
@@ -198,18 +200,19 @@ class transformer_block(torch.nn.Module):
             keys.transpose(-3, -2),
             values.transpose(-3, -2),
             is_causal = (mask is None),
+            dropout_p = self.network_config.dropout_rate
             attn_mask = mask
         # transpose to switch the sequence and head dimensions
         ).transpose(-3, -2).flatten(-2)
         
-        return self.attention_down(attention / attention.std(dim = -1, keepdim = True))
+        return self.attention_down(attention)
     
 
     def forward(self, activations: torch.Tensor, kv_cache: Optional[tuple[torch.Tensor, torch.Tensor]], index) -> tuple[torch.Tensor, tuple[torch.Tensor, torch.Tensor]]:
         activations = torch.nn.functional.dropout(activations, p = self.network_config.dropout_rate, training = self.training)
         # kv_cache is modified in place
-        activations = (activations + self.attention(activations, kv_cache = kv_cache, index = index)) * self.residule_scale
-        activations = (activations + self.mlp(activations)) * self.residule_scale
+        activations = norm(activations + self.attention(activations, kv_cache = kv_cache, index = index))
+        activations = norm(activations + self.mlp(activations))
         return activations, kv_cache
 
 
