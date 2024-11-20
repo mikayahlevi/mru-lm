@@ -1,5 +1,6 @@
 trains
 __pycache__
 custom_datasets/__pycache__
+deps/__pycache__
 data
 plan.md
