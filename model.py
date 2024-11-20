@@ -75,9 +75,9 @@ class xpos(torch.nn.Module):
         return queries, keys
 
 
-class flat_elu_mlp(torch.nn.Module):
+class flat_relu_mlp(torch.nn.Module):
     def __init__(self, intermediate_size, n_intermediate_layers):
-        super(flat_elu_mlp, self).__init__()
+        super(flat_relu_mlp, self).__init__()
 
         self.layers = torch.nn.ModuleList([
             torch.nn.Linear(intermediate_size, intermediate_size, bias = False) for _ in range(n_intermediate_layers)
@@ -136,7 +136,7 @@ class transformer_block(torch.nn.Module):
         torch.nn.init.normal_(self.attention_down.weight, mean = 0, std = 1 / math.sqrt(block_config.value_size))
         
 
-        self.mlp = flat_elu_mlp(network_config.embedding_size, block_config.n_mlp_layers)
+        self.mlp = flat_relu_mlp(network_config.embedding_size, block_config.n_mlp_layers)
 
 
         self.position_embedding = xpos(self.key_head_size, max_sequence_length = network_config.max_sequence_length)
