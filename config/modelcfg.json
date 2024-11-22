@@ -5,32 +5,32 @@
     "block_configs": [
         {
             "state_size": 128,
-            "n_state_heads": 8,
+            "n_state_heads": 32,
             "n_mlp_layers": 3
         },
         {
             "state_size": 128,
-            "n_state_heads": 8,
+            "n_state_heads": 32,
             "n_mlp_layers": 3
         },
         {
             "state_size": 128,
-            "n_state_heads": 8,
+            "n_state_heads": 32,
             "n_mlp_layers": 3
         },
         {
             "state_size": 128,
-            "n_state_heads": 8,
+            "n_state_heads": 32,
             "n_mlp_layers": 3
         },
         {
             "state_size": 128,
-            "n_state_heads": 8,
+            "n_state_heads": 32,
             "n_mlp_layers": 3
         },
         {
             "state_size": 128,
-            "n_state_heads": 8,
+            "n_state_heads": 32,
             "n_mlp_layers": 3
         }
     ]
