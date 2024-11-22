@@ -1,48 +1,36 @@
 {
-    "embedding_size": 384,
+    "embedding_size": 256,
     "dropout_rate": 0.2,
     "max_sequence_length": 1024,
     "block_configs": [
         {
             "state_size": 128,
             "n_state_heads": 8,
-            "key_size": 384,
-            "value_size": 384,
             "n_mlp_layers": 3
         },
         {
             "state_size": 128,
             "n_state_heads": 8,
-            "key_size": 384,
-            "value_size": 384,
             "n_mlp_layers": 3
         },
         {
             "state_size": 128,
             "n_state_heads": 8,
-            "key_size": 384,
-            "value_size": 384,
             "n_mlp_layers": 3
         },
         {
             "state_size": 128,
             "n_state_heads": 8,
-            "key_size": 384,
-            "value_size": 384,
             "n_mlp_layers": 3
         },
         {
             "state_size": 128,
             "n_state_heads": 8,
-            "key_size": 384,
-            "value_size": 384,
             "n_mlp_layers": 3
         },
         {
             "state_size": 128,
             "n_state_heads": 8,
-            "key_size": 384,
-            "value_size": 384,
             "n_mlp_layers": 3
         }
     ]

@@ -13,9 +13,6 @@ class mrun_block_config:
     n_state_heads: int
     state_size: int
 
-    key_size: int
-    value_size: int
-
     n_mlp_layers: int
 
 
@@ -181,7 +178,7 @@ class mrun_block(torch.nn.Module):
         self.genmatrix = genmatrix_module(network_config.embedding_size, 4, block_config.n_state_heads, self.state_head_size)
 
         self.state_down = torch.nn.Linear(block_config.state_size, network_config.embedding_size, bias = False)
-        torch.nn.init.normal_(self.state_down.weight, mean = 0, std = 1 / math.sqrt(block_config.value_size))
+        torch.nn.init.normal_(self.state_down.weight, mean = 0, std = 1 / math.sqrt(block_config.state_size))
 
         self.mlp = flat_relu_mlp(network_config.embedding_size, 3)
         
