@@ -6,7 +6,6 @@
         {
             "state_size": 128,
             "n_state_heads": 8,
-            "intermediate_size": 384,
             "key_size": 384,
             "value_size": 384,
             "n_mlp_layers": 3
@@ -14,7 +13,6 @@
         {
             "state_size": 128,
             "n_state_heads": 8,
-            "intermediate_size": 384,
             "key_size": 384,
             "value_size": 384,
             "n_mlp_layers": 3
@@ -22,7 +20,6 @@
         {
             "state_size": 128,
             "n_state_heads": 8,
-            "intermediate_size": 384,
             "key_size": 384,
             "value_size": 384,
             "n_mlp_layers": 3
@@ -30,7 +27,6 @@
         {
             "state_size": 128,
             "n_state_heads": 8,
-            "intermediate_size": 384,
             "key_size": 384,
             "value_size": 384,
             "n_mlp_layers": 3
@@ -38,7 +34,6 @@
         {
             "state_size": 128,
             "n_state_heads": 8,
-            "intermediate_size": 384,
             "key_size": 384,
             "value_size": 384,
             "n_mlp_layers": 3
@@ -46,7 +41,6 @@
         {
             "state_size": 128,
             "n_state_heads": 8,
-            "intermediate_size": 384,
             "key_size": 384,
             "value_size": 384,
             "n_mlp_layers": 3

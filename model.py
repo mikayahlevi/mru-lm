@@ -175,12 +175,12 @@ class mrun_block(torch.nn.Module):
         self.state_head_size = block_config.state_size // block_config.n_state_heads
 
 
-        self.genmatrix = genmatrix_module(block_config.intermediate_size, 4, block_config.n_state_heads, self.state_head_size)
+        self.genmatrix = genmatrix_module(network_config.embedding_size, 4, block_config.n_state_heads, self.state_head_size)
 
-        self.state_down = torch.nn.Linear(block_config.state_size, block_config.intermediate_size, bias = False)
+        self.state_down = torch.nn.Linear(block_config.state_size, network_config.embedding_size, bias = False)
         torch.nn.init.normal_(self.state_down.weight, mean = 0, std = 1 / math.sqrt(block_config.value_size))
 
-        self.mlp = flat_elu_mlp(block_config.intermediate_size, 3)
+        self.mlp = flat_relu_mlp(network_config.embedding_size, 3)
         
 
         self.residule_scale = torch.nn.Parameter(torch.tensor([1 / math.sqrt(2)]), requires_grad=False)
