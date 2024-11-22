@@ -20,6 +20,9 @@ class mrun_block_config:
 
 
 
+def norm(input: torch.Tensor) -> torch.Tensor:
+    return input / input.std(dim = -1, keepdim = True)
+
 @dataclass
 class mrun_network_config:
     vocab_size: int
@@ -198,8 +201,8 @@ class mrun_block(torch.nn.Module):
         activations = torch.nn.functional.dropout(activations, p = self.network_config.dropout_rate, training = self.training)
         out_states = self.parallel_mru(activations, last_state)
         out_states_down = self.state_down(out_states.flatten(-2, -1))
-        activations = (activations + out_states_down) * self.residule_scale
-        activations = (activations + self.mlp(activations)) * self.residule_scale
+        activations = norm(activations + out_states_down)
+        activations = norm(activations + self.mlp(activations))
         return activations, out_states[..., -1, :, :]
 
 
