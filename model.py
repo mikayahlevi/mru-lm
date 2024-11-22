@@ -163,7 +163,7 @@ class transformer_block(torch.nn.Module):
                 keys = torch.cat((cache_keys[..., :cache_sequence_length, :, :], incoming_keys), dim = -3)
                 values = torch.cat((cache_values[..., :cache_sequence_length, :, :], incoming_values), dim = -3)
 
-                mask = torch.ones(incoming_sequence_length, total_sequence_length, dtype = torch.bool, device = keys.device).triu()
+                mask = torch.ones((incoming_sequence_length, total_sequence_length), dtype=torch.bool, device = keys.device).tril(total_sequence_length - incoming_sequence_length)
 
                 return (keys, values), mask
             elif index == 0:
@@ -180,7 +180,7 @@ class transformer_block(torch.nn.Module):
                 cache_values[..., cache_sequence_length:total_sequence_length, :, :] = incoming_values
 
                 # custom mask so that it can pay attention to the cached tokens
-                mask = torch.ones(incoming_sequence_length, total_sequence_length, dtype = torch.bool, device = keys.device).triu()
+                mask = torch.ones((incoming_sequence_length, total_sequence_length), dtype=torch.bool, device = keys.device).tril(total_sequence_length - incoming_sequence_length)
 
                 return (keys, values), mask
 
