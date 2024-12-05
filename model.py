@@ -24,6 +24,11 @@ class mrun_config:
 
 class parallel_mru_class(torch.autograd.Function):
     @staticmethod
+    def parrallel_associative_scan(operator_fn, inputs, access_fn, input_length):
+        pass
+
+
+    @staticmethod
     def forward(ctx, input_state, start_matrix_states):
         final_matrix_states = start_matrix_states.clone()
 
