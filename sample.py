@@ -1,6 +1,6 @@
 import torch
 
-
+from model import transformer_cache
 
 @torch.no_grad()
 # Sample from a starting letter

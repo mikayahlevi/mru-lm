@@ -11,7 +11,7 @@ from typing import Optional
 import dataclasses
 
 
-from model import mrun_network, mrun_network_config, mrun_block_config
+from model import mrun_network, mrun_config
 from train import train, train_config, hyperparameter_config
 
 
@@ -51,9 +51,7 @@ if __name__ == '__main__':
 
     with open(os.path.join(args.config_path, 'modelcfg.json'), 'r') as f:
         # set the model's vocab size to the dataset's vocab size
-        modelcfg_dict = json.load(f)
-        block_configs = [mrun_block_config(**block) for block in modelcfg_dict.pop('block_configs')]
-        modelcfg = mrun_network_config(**modelcfg_dict, block_configs = block_configs, vocab_size = tokenizer.get_vocab_size())
+        modelcfg = mrun_config(**json.load(f), vocab_size = tokenizer.get_vocab_size())
 
 
     # create the path to log the info and dump the configs as jsons
