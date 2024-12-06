@@ -1,7 +1,5 @@
 import torch
 
-from model import transformer_cache
-
 @torch.no_grad()
 # Sample from a starting letter
 def sample(model, tokenizer, sequence_start: str, temperature: float, max_length: int, device) -> str:
