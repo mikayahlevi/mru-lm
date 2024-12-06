@@ -29,11 +29,17 @@ class parallel_mru_class(torch.autograd.Function):
 
         sequence_length = start_matrix_states.size(-3)
         
+        # parallel scan
         n_stages = math.ceil(math.log2(sequence_length))
+        # first sweep
         for stage in range(n_stages):
             stage_stride = 2 ** stage
-            final_matrix_states[..., stage_stride:, :, :] = final_matrix_states[..., :-stage_stride, :, :] @ final_matrix_states[..., stage_stride:, :, :]
+            final_matrix_states[..., 2 * stage_stride - 1::2 * stage_stride, :, :] = final_matrix_states[..., stage_stride - 1:-stage_stride:2 * stage_stride, :, :] @ final_matrix_states[..., 2 * stage_stride - 1::2 * stage_stride, :, :]
         
+        # second sweep
+        for stage in reversed(range(n_stages - 1)):
+            stage_stride = 2 ** stage
+            final_matrix_states[..., 2 * stage_stride + stage_stride - 1::2 * stage_stride, :, :] = final_matrix_states[..., 2 * stage_stride - 1:-stage_stride:2 * stage_stride, :, :] @ final_matrix_states[..., 2 * stage_stride + stage_stride - 1::2 * stage_stride, :, :]
 
         ctx.save_for_backward(input_state, start_matrix_states, final_matrix_states)
         ctx.sequence_length = sequence_length
