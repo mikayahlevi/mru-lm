@@ -109,8 +109,6 @@ class genmatrix_module(torch.nn.Module):
 
         torch.nn.init.normal_(self.query_layer.weight, mean = 0, std = 1.0 / math.sqrt(input_size))
         torch.nn.init.normal_(self.value_layer.weight, mean = 0, std = 1.0 / math.sqrt(input_size))
-        # torch.nn.init.zeros_(self.query_layer.weight)
-        # torch.nn.init.zeros_(self.value_layer.weight)
 
         self.eye = torch.nn.Parameter(torch.eye(state_head_size), requires_grad=False)
 
