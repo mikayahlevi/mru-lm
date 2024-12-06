@@ -97,7 +97,7 @@ class parallel_mru_class(torch.autograd.Function):
             tl[..., 2 * stage_stride - 1::2 * stage_stride, :, :] = tl[..., stage_stride - 1:-stage_stride:2 * stage_stride, :, :] @ tl[..., 2 * stage_stride - 1::2 * stage_stride, :, :]
 
         # second sweep
-        for stage in range(n_stages):
+        for stage in reversed(range(n_stages - 1)):
             stage_stride = 2 ** stage
             bl[..., 2 * stage_stride + stage_stride - 1::2 * stage_stride, :, :] = bl[..., 2 * stage_stride - 1:-stage_stride:2 * stage_stride, :, :] @ tl[..., 2 * stage_stride + stage_stride - 1::2 * stage_stride, :, :] + bl[..., 2 * stage_stride + stage_stride - 1::2 * stage_stride, :, :]
             tl[..., 2 * stage_stride + stage_stride - 1::2 * stage_stride, :, :] = tl[..., 2 * stage_stride - 1:-stage_stride:2 * stage_stride, :, :] @ tl[..., 2 * stage_stride + stage_stride - 1::2 * stage_stride, :, :]
