@@ -95,7 +95,7 @@ class parallel_mru_class(torch.autograd.Function):
 
     
 class genmatrix_module(torch.nn.Module):
-    def __init__(self, input_size, resolution, n_state_heads, state_head_size, lr_like = 0.001):
+    def __init__(self, input_size, resolution, n_state_heads, state_head_size, lr_like = 0.003):
         super(genmatrix_module, self).__init__()
 
         self.resolution = resolution
