@@ -150,6 +150,7 @@ class mrun_block(torch.nn.Module):
             torch.nn.Linear(config.embedding_size, config.embedding_size * 4, bias = False),
             torch.nn.GELU(),
             torch.nn.Linear(config.embedding_size * 4, config.embedding_size, bias = False)
+            torch.nn.Dropout(config.dropout_rate)
         )
 
         torch.nn.init.normal_(self.mlp[0].weight, mean = 0, std = 0.02)
@@ -160,12 +161,19 @@ class mrun_block(torch.nn.Module):
     def parallel_mru(self, activations: torch.Tensor, last_state: torch.Tensor) -> torch.Tensor:
         matrices = self.genmatrix(activations)
         return parallel_mru_class.apply(last_state, matrices).transpose(-2, -3)
+    
+    def process_states(self, states: torch.Tensor) -> torch.Tensor:
+        return torch.nn.functional.dropout(
+            self.state_down(states.flatten(-2, -1)),
+            p = self.config.dropout_rate,
+            training = self.training
+        )
 
 
     def forward(self, activations: torch.Tensor, last_state: torch.Tensor) -> torch.Tensor:
         states = self.parallel_mru(self.first_ln(activations), last_state)
 
-        activations = activations + self.state_down(states.flatten(-2, -1))
+        activations = activations + self.process_states(states)
         activations = activations + self.mlp(self.second_ln(activations))
         return activations, states[-1]
 
