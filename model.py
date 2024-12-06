@@ -16,8 +16,6 @@ class mrun_config:
     n_state_heads: int
     state_size: int
 
-    n_mlp_layers: int
-
     n_blocks: int
 
 
@@ -122,8 +120,10 @@ class genmatrix_module(torch.nn.Module):
         self.query_layer = torch.nn.Linear(input_size, resolution * n_state_heads * state_head_size, bias = False)
         self.value_layer = torch.nn.Linear(input_size, resolution * n_state_heads * state_head_size, bias = False)
 
-        torch.nn.init.normal_(self.query_layer.weight, mean = 0, std = 1 / math.sqrt(input_size))
-        torch.nn.init.normal_(self.value_layer.weight, mean = 0, std = 1 / math.sqrt(input_size))
+        torch.nn.init.normal_(self.query_layer.weight, mean = 0, std = 1.0 / math.sqrt(input_size))
+        torch.nn.init.normal_(self.value_layer.weight, mean = 0, std = 1.0 / math.sqrt(input_size))
+        # torch.nn.init.zeros_(self.query_layer.weight)
+        # torch.nn.init.zeros_(self.value_layer.weight)
 
         self.eye = torch.nn.Parameter(torch.eye(state_head_size), requires_grad=False)
 
@@ -133,7 +133,7 @@ class genmatrix_module(torch.nn.Module):
 
         matrices = (queries.unsqueeze(-1) @ values.unsqueeze(-2))
 
-        return self.eye + matrices.sum(dim = -4).transpose(-3, -4) * self.lr_like
+        return self.eye + (matrices.sum(dim = -4).transpose(-3, -4) * self.lr_like)
 
 
 
@@ -152,7 +152,7 @@ class mrun_block(torch.nn.Module):
         self.genmatrix = genmatrix_module(config.embedding_size, 4, config.n_state_heads, self.state_head_size)
 
         self.state_down = torch.nn.Linear(config.state_size, config.embedding_size, bias = False)
-        torch.nn.init.normal_(self.state_down.weight, mean = 0, std = 1 / math.sqrt(config.state_size))
+        torch.nn.init.normal_(self.state_down.weight, mean = 0, std = (0.02 * 0.4) / math.sqrt(config.n_blocks))
 
 
         self.first_ln = torch.nn.LayerNorm(config.embedding_size, bias = False)
@@ -176,9 +176,11 @@ class mrun_block(torch.nn.Module):
 
 
     def forward(self, activations: torch.Tensor, last_state: torch.Tensor) -> torch.Tensor:
-        activations = activations + self.parallel_mru(self.first_ln(activations), last_state)
+        states = self.parallel_mru(self.first_ln(activations), last_state)
+
+        activations = activations + self.state_down(states.flatten(-2, -1))
         activations = activations + self.mlp(self.second_ln(activations))
-        return activations
+        return activations, states[-1]
 
 
 
@@ -194,26 +196,26 @@ class mrun_network(torch.nn.Module):
 
         self.config = config
 
-        
-        self.blocks = torch.nn.ModuleList([mrun_block(config, block_number) for block_number in range(config.n_blocks)])
+        self.blocks = torch.nn.ModuleList([mrun_block(config) for _ in range(config.n_blocks)])
         
         
         self.wte = torch.nn.Embedding(config.vocab_size, config.embedding_size)
-        torch.nn.init.normal_(self.wte.weight, mean = 0, std = 1)
+        torch.nn.init.normal_(self.wte.weight, mean = 0, std = 0.02)
         
         self.lm_head_weights = self.wte.weight
 
-        self.embedding_scale_constant = torch.nn.Parameter(torch.tensor([]), requires_grad=False)
-
     # index should start at 0
     def forward(self, encodings: torch.Tensor, last_state: list[torch.Tensor, torch.Tensor]) -> tuple[torch.Tensor, list[torch.Tensor]]:
-
-        embeddings = self.wte(encodings)
+        embeddings = torch.nn.functional.dropout( 
+            self.wte(encodings),
+            p = self.config.dropout_rate,
+            training = self.training
+        )
 
         for i, block in enumerate(self.blocks):
             embeddings, last_state[i] = block.forward(embeddings, last_state[i])
         
-        logits = torch.nn.functional.linear(embeddings, weight = self.lm_head_weights * (1 / math.sqrt(self.config.embedding_size)))
+        logits = torch.nn.functional.linear(embeddings, weight = self.lm_head_weights)
 
         return logits, last_state
         
