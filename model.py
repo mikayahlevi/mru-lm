@@ -92,10 +92,17 @@ class parallel_mru_class(torch.autograd.Function):
 
         sequence_length = ctx.sequence_length
         n_stages = math.ceil(math.log2(sequence_length))
+        # first sweep
         for stage in range(n_stages):
             stage_stride = 2 ** stage
-            bl[..., :-stage_stride, :, :] = bl[..., stage_stride:, :, :] @ tl[..., :-stage_stride, :, :] + bl[..., :-stage_stride, :, :]
-            tl[..., :-stage_stride, :, :] = tl[..., stage_stride:, :, :] @ tl[..., :-stage_stride, :, :]
+            bl[..., 2 * stage_stride - 1::2 * stage_stride, :, :] = bl[..., stage_stride - 1:-stage_stride:2 * stage_stride, :, :] @ tl[..., 2 * stage_stride - 1::2 * stage_stride, :, :] + bl[..., 2 * stage_stride - 1::2 * stage_stride, :, :]
+            tl[..., 2 * stage_stride - 1::2 * stage_stride, :, :] = tl[..., stage_stride - 1:-stage_stride:2 * stage_stride, :, :] @ tl[..., 2 * stage_stride - 1::2 * stage_stride, :, :]
+
+        # second sweep
+        for stage in range(n_stages):
+            stage_stride = 2 ** stage
+            bl[..., 2 * stage_stride + stage_stride - 1::2 * stage_stride, :, :] = bl[..., 2 * stage_stride - 1:-stage_stride:2 * stage_stride, :, :] @ tl[..., 2 * stage_stride + stage_stride - 1::2 * stage_stride, :, :] + bl[..., 2 * stage_stride + stage_stride - 1::2 * stage_stride, :, :]
+            tl[..., 2 * stage_stride + stage_stride - 1::2 * stage_stride, :, :] = tl[..., 2 * stage_stride - 1:-stage_stride:2 * stage_stride, :, :] @ tl[..., 2 * stage_stride + stage_stride - 1::2 * stage_stride, :, :]
 
         grad_start_matrix_states = grad_before_start_matrix_states @ bl
 
