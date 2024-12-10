@@ -22,7 +22,7 @@ class mrun_config:
 
 class parallel_mru_class(torch.autograd.Function):
     @staticmethod
-    def forward(ctx, input_state, start_matrix_states):
+    def forward(ctx, start_matrix_states):
         final_matrix_states = start_matrix_states.clone()
 
         sequence_length = start_matrix_states.size(-3)
@@ -33,10 +33,10 @@ class parallel_mru_class(torch.autograd.Function):
             final_matrix_states[..., stage_stride:, :, :] = final_matrix_states[..., :-stage_stride, :, :] @ final_matrix_states[..., stage_stride:, :, :]
         
 
-        ctx.save_for_backward(input_state, start_matrix_states, final_matrix_states)
+        ctx.save_for_backward(start_matrix_states, final_matrix_states)
         ctx.sequence_length = sequence_length
 
-        return (input_state.unsqueeze(-2).unsqueeze(-2) @ final_matrix_states).squeeze(-2)
+        return final_matrix_states
 
     @staticmethod
     def backward(ctx, grad_output):
@@ -59,12 +59,11 @@ class parallel_mru_class(torch.autograd.Function):
             new_shape[-3] = 1
             return torch.zeros(new_shape, device = grad_output.device)
         
-        input_state, start_matrix_states, final_matrix_states = ctx.saved_tensors
+        start_matrix_states, final_matrix_states = ctx.saved_tensors
 
         transposed_final_matrix_states = final_matrix_states.transpose(-1, -2)
 
-        grad_input_state = (grad_output.unsqueeze(-2) @ transposed_final_matrix_states).sum(dim = -3).squeeze(-2)
-        grad_final_matrix_states = input_state.unsqueeze(-1).unsqueeze(-3) * grad_output.unsqueeze(-2)
+        grad_final_matrix_states = grad_output
 
 
         # grad_before_start_matrix_states = torch.cat((create_eye_for_shift(transposed_final_matrix_states.shape), transposed_final_matrix_states[..., :-1, :, :]), dim = -3)
@@ -91,7 +90,7 @@ class parallel_mru_class(torch.autograd.Function):
 
         grad_start_matrix_states = grad_before_start_matrix_states @ bl
 
-        return grad_input_state, grad_start_matrix_states
+        return grad_start_matrix_states
 
     
 class genmatrix_module(torch.nn.Module):
