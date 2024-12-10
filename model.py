@@ -92,33 +92,6 @@ class parallel_mru_class(torch.autograd.Function):
 
         return grad_start_matrix_states
 
-    
-class genmatrix_module(torch.nn.Module):
-    def __init__(self, input_size, resolution, n_state_heads, state_head_size, lr_like = 0.002):
-        super(genmatrix_module, self).__init__()
-
-        self.resolution = resolution
-        self.input_size = input_size
-        self.n_state_heads = n_state_heads
-        self.state_head_size = state_head_size
-        self.lr_like = lr_like
-
-        self.query_layer = torch.nn.Linear(input_size, resolution * n_state_heads * state_head_size, bias = False)
-        self.value_layer = torch.nn.Linear(input_size, resolution * n_state_heads * state_head_size, bias = False)
-
-        torch.nn.init.normal_(self.query_layer.weight, mean = 0, std = 1.0 / math.sqrt(input_size))
-        torch.nn.init.normal_(self.value_layer.weight, mean = 0, std = 1.0 / math.sqrt(input_size))
-
-        self.eye = torch.nn.Parameter(torch.eye(state_head_size), requires_grad=False)
-
-    def forward(self, input):
-        queries = self.query_layer(input).unflatten(-1, (self.resolution, self.n_state_heads, self.state_head_size))
-        values = self.value_layer(input).unflatten(-1, (self.resolution, self.n_state_heads, self.state_head_size))
-
-        matrices = (queries.unsqueeze(-1) @ values.unsqueeze(-2))
-
-        return self.eye + (matrices.sum(dim = -4).transpose(-3, -4) * self.lr_like)
-
 
 
 class mrun_block(torch.nn.Module):
@@ -133,7 +106,6 @@ class mrun_block(torch.nn.Module):
         self.state_head_size = config.state_size // config.n_state_heads
 
 
-        self.genmatrix = genmatrix_module(config.embedding_size, 4, config.n_state_heads, self.state_head_size)
 
         self.state_down = torch.nn.Linear(config.state_size, config.embedding_size, bias = False)
         torch.nn.init.normal_(self.state_down.weight, mean = 0, std = (0.02 * 0.4) / math.sqrt(config.n_blocks))
