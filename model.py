@@ -99,16 +99,20 @@ class mrun_block(torch.nn.Module):
         if config.state_size % config.n_state_heads != 0:
             raise ValueError("state size must be divisible by the number of state heads")
         self.state_head_size = config.state_size // config.n_state_heads
+        
         if self.state_head_size != math.isqrt(self.state_head_size) ** 2:
             raise ValueError("state head size must be a peffect square to form the state head matrix")
         self.state_head_order = math.isqrt(self.state_head_size)
 
+        if config.embedding_size % self.state_head_order != 0:
+            raise ValueError(f"embedding size must be divisible by the state head order ({self.state_head_order})")
+        self.embedding_state_head_order_chunk_size = config.embedding_size // self.state_head_order
 
-        self.state_matrices_up = torch.nn.Linear(config.embedding_size, config.state_size, bias = False)
-        self.state_matrices_down = torch.nn.Linear(config.state_size, config.embedding_size, bias = False)
+        self.state_matrices_up = torch.nn.Linear(self.embedding_state_head_order_chunk_size, self.state_head_order, bias = False)
+        self.state_matrices_down = torch.nn.Linear(self.state_head_order, self.embedding_state_head_order_chunk_size, bias = False)
 
-        torch.nn.init.normal_(self.state_matrices_up.weight, mean = 0, std = 1 / (math.sqrt(config.embedding_size) * math.sqrt(self.state_head_order)))
-        torch.nn.init.normal_(self.state_matrices_down.weight, mean = 0, std = math.sqrt(config.embedding_size) * math.sqrt(self.state_head_order) * 0.02 * 0.02 / math.sqrt(config.n_blocks))
+        torch.nn.init.normal_(self.state_matrices_up.weight, mean = 0, std = 0.1 / (math.sqrt(self.embedding_state_head_order_chunk_size) * math.sqrt(self.state_head_order)))
+        torch.nn.init.normal_(self.state_matrices_down.weight, mean = 0, std = 0.1536 / math.sqrt(config.n_blocks))
 
 
         self.first_ln = torch.nn.LayerNorm(config.embedding_size, bias = False)
@@ -126,7 +130,7 @@ class mrun_block(torch.nn.Module):
         torch.nn.init.normal_(self.mlp[2].weight, mean = 0, std = 0.02 / math.sqrt(config.n_blocks))
             
     def parallel_mru(self, activations: torch.Tensor, last_state: Optional[torch.Tensor]) -> torch.Tensor:
-        new_matrices = self.state_matrices_up(activations).unflatten(-1, (self.config.n_state_heads, self.state_head_order, self.state_head_order))
+        new_matrices = self.state_matrices_up(activations.unflatten(-1, (self.config.n_state_heads, self.state_head_order, self.embedding_state_head_order_chunk_size))) * 0.1 + torch.eye(self.state_head_order, device = activations.device)
         
         full_matrices = new_matrices if last_state is None else torch.cat((last_state.unsqueeze(dim = -4), new_matrices), dim = -4)
         
@@ -134,7 +138,7 @@ class mrun_block(torch.nn.Module):
         
         states = parallel_mru_op_output if last_state is None else parallel_mru_op_output[..., 1:, :, :, :]
 
-        output = self.state_matrices_down(states.flatten(-3, -1))
+        output = self.state_matrices_down(states).flatten(-3, -1)
 
         return torch.nn.functional.dropout(
             output,
