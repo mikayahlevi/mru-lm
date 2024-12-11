@@ -5,204 +5,114 @@ import math
 from typing import Optional
 from dataclasses import dataclass
 
-    
 @dataclass
-class transformer_config:
+class mrun_config:
     vocab_size: int
-    
     
     embedding_size: int
 
     dropout_rate: float
 
-
-    n_attn_heads: int
-
-    key_size: int
-    value_size: int
-
-
-    max_sequence_length: int
-    
+    n_state_heads: int
+    state_size: int
 
     n_blocks: int
 
 
 
-class xpos(torch.nn.Module):
-    def __init__(self, key_head_size: int, max_sequence_length: int = 1024):
-        super(xpos, self).__init__()
+class parallel_mru_class(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx, start_matrix_states):
+        final_matrix_states = start_matrix_states.clone()
 
-        if key_head_size % 2 != 0:
-            raise ValueError("key head size must be divisible by 2 for the positional embedding")
-
-        theta_base = 10000
-        alpha = 0.4 * key_head_size
-
-        drange = torch.arange(start = 2, end = key_head_size + 2, step = 2, dtype = torch.float32)
-        theta = torch.pow(1 / theta_base, drange / key_head_size).repeat_interleave(2)
-        zeta = ((drange / (key_head_size / 2) + alpha) / (1 + alpha)).repeat_interleave(2)
-        # no effect except for numerical stability
-        scale_base = 512
-        # no effect except for numerical stability
-        half_max_sequence_length = max_sequence_length // 2
-
-        seq_range = torch.arange(- half_max_sequence_length, max_sequence_length - half_max_sequence_length, dtype = torch.float32).view(-1, 1, 1) / scale_base
-
-        self.c = torch.nn.Buffer(torch.cos(seq_range * theta.view(1, 1, -1)))
-        self.s = torch.nn.Buffer(torch.sin(seq_range * theta.view(1, 1, -1)))
-        self.t = torch.nn.Buffer((zeta.view(1, 1, -1) ** seq_range))
-        self.invt = torch.nn.Buffer(1 / self.t)
-
-
-
-    def rotate_every_two(self, input: torch.Tensor) -> torch.Tensor:
-        return torch.stack((-input[..., 1::2], input[..., 0::2]), dim = -1).flatten(-2)
-
-
-    def forward(self, queries, keys, start, end) -> tuple[torch.Tensor, torch.Tensor]:
-        queries = (queries * self.c[start:end] + self.rotate_every_two(queries) * self.s[start:end]) * self.t[start:end]
-        keys = (keys * self.c[start:end] + self.rotate_every_two(keys) * self.s[start:end]) * self.invt[start:end]
-
-
-        return queries, keys
-    
-
-
-
-class transformer_cache(torch.nn.Module):
-    def __init__(self, config: transformer_config, proceeding_dimensions: tuple[int, ...] = (1,), device: Optional[str] = None):
-        super(transformer_cache, self).__init__()
-
-        self.config = config
-
-
-        self.last_position = 0
-        self.current_position = 0
-
-
-        self.device_kwarg = {} if device is None else {'device': device}
-
-        self.keys = torch.empty(proceeding_dimensions + (config.n_blocks, config.max_sequence_length, config.n_attn_heads, config.key_size // config.n_attn_heads), **self.device_kwarg)
-        self.values = torch.empty(proceeding_dimensions + (config.n_blocks, config.max_sequence_length, config.n_attn_heads, config.value_size // config.n_attn_heads), **self.device_kwarg)
-
-    def increment_position(self, amount: int):
-        self.last_position = self.current_position
-        self.current_position += amount
-
-    def reset(self):
-        self.last_position = 1
-        self.current_position = 1
-
-    def append_keys(self, keys: torch.Tensor, block_number: int):
-        self.keys[..., block_number, self.last_position:self.current_position, :, :] = keys
-
-    def append_values(self, values: torch.Tensor, block_number: int):
-        self.values[..., block_number, self.last_position:self.current_position, :, :] = values
-
-    def get_full_keys(self, block_number: int) -> torch.Tensor:
-        return self.keys[..., block_number, :self.current_position, :, :]
-    
-    def get_full_values(self, block_number: int) -> torch.Tensor:
-        return self.values[..., block_number, :self.current_position, :, :]
-
-    def get_previous_keys(self, block_number: int) -> torch.Tensor:
-        return self.keys[..., block_number, :self.last_position, :, :]
-
-    def get_previous_values(self, block_number: int) -> torch.Tensor:
-        return self.values[..., block_number, :self.last_position, :, :]
-    
-
-    def get_mask(self) -> torch.Tensor:
-        return torch.ones(
-            (self.current_position - self.last_position, self.current_position), dtype=torch.bool, **self.device_kwarg
-        ).tril(self.last_position)
+        sequence_length = start_matrix_states.size(-3)
+        
+        n_stages = math.ceil(math.log2(sequence_length))
+        for stage in range(n_stages):
+            stage_stride = 2 ** stage
+            final_matrix_states[..., stage_stride:, :, :] = final_matrix_states[..., :-stage_stride, :, :] @ final_matrix_states[..., stage_stride:, :, :]
         
 
+        ctx.save_for_backward(start_matrix_states, final_matrix_states)
+        ctx.sequence_length = sequence_length
 
-class transformer_attention(torch.nn.Module):
-    def __init__(self, config, block_number: int):
-        super(transformer_attention, self).__init__()
+        return final_matrix_states
 
+    @staticmethod
+    def backward(ctx, grad_final_matrix_states):
+        def create_eye_for_shift(shape):
+            resized_eye = torch.eye(*shape[-2:], device = grad_final_matrix_states.device)
+            while resized_eye.dim() < len(shape):
+                resized_eye = resized_eye.unsqueeze(0)
+            
+            resized_eye_shape = shape[:-3]
+            resized_eye_shape = list(resized_eye_shape)
+            
+            while len(resized_eye_shape) < len(shape):
+                resized_eye_shape.append(1)
 
-        self.block_number = block_number
+            resized_eye = resized_eye.repeat(*resized_eye_shape)
+            return resized_eye
 
-        self.config = config
+        def create_zeros_for_shift(shape):
+            new_shape = list(shape)
+            new_shape[-3] = 1
+            return torch.zeros(new_shape, device = grad_final_matrix_states.device)
+        
+        start_matrix_states, final_matrix_states = ctx.saved_tensors
 
-        if config.key_size % config.n_attn_heads != 0:
-            raise ValueError("key size must be divisible by the number of attention heads")
-        self.key_head_size = config.key_size // config.n_attn_heads
+        # grad_before_start_matrix_states = torch.cat((create_eye_for_shift(transposed_final_matrix_states.shape), transposed_final_matrix_states[..., :-1, :, :]), dim = -3)
+        # faster implementation
 
-        if config.value_size % config.n_attn_heads != 0:
-            raise ValueError("value size must be divisible by the number of attention heads")
-        self.value_head_size = config.value_size // config.n_attn_heads
-
-
-        self.query_layer = torch.nn.Linear(config.embedding_size, config.key_size, bias = False)
-        self.key_layer = torch.nn.Linear(config.embedding_size, config.key_size, bias = False)
-        self.value_layer = torch.nn.Linear(config.embedding_size, config.value_size, bias = False)
-
-        torch.nn.init.normal_(self.query_layer.weight, mean = 0, std = 0.02)
-        torch.nn.init.normal_(self.key_layer.weight, mean = 0, std = 0.02)
-        torch.nn.init.normal_(self.value_layer.weight, mean = 0, std = 0.02)
-
-        self.attention_down = torch.nn.Linear(config.value_size, config.embedding_size, bias = False)
-        torch.nn.init.normal_(self.attention_down.weight, mean = 0, std = 0.02 / math.sqrt(config.n_blocks))
-
-
-        self.position_embedding = xpos(self.key_head_size, max_sequence_length = config.max_sequence_length)
-
-    def forward(self, activations: torch.Tensor, cache: Optional[transformer_cache] = None) -> torch.Tensor:
-        use_cache = cache is not None
-
-        queries = self.query_layer(activations).unflatten(-1, (self.config.n_attn_heads, self.key_head_size))
-
-        keys = self.key_layer(activations).unflatten(-1, (self.config.n_attn_heads, self.key_head_size))
-        values = self.value_layer(activations).unflatten(-1, (self.config.n_attn_heads, self.value_head_size))
+        grad_before_start_matrix_states = final_matrix_states.transpose(-1, -2).roll(1, dims = -3)
+        grad_before_start_matrix_states[..., 0, :, :] = torch.eye(grad_before_start_matrix_states.size(-2), device = grad_before_start_matrix_states.device)
 
 
-        queries, keys = self.position_embedding(
-            queries,
-            keys,
-            cache.last_position if use_cache else 0,
-            cache.current_position if use_cache else activations.size(-2)
-        )
+        # tl = torch.cat((start_matrix_states[..., 1:, :, :], create_zeros_for_shift(start_matrix_states.shape)), dim = -3).transpose(-1, -2)
+        # faster implementation
 
+        tl = start_matrix_states.transpose(-1, -2).roll(-1, dims = -3)
+        tl[..., -1, :, :] = torch.zeros((tl.size(-2), tl.size(-1)), device = tl.device)
 
-        mask_kwarg = {}
-        if use_cache:
-            mask_kwarg['attn_mask'] = cache.get_mask()
-            cache.append_keys(keys, self.block_number)
-            cache.append_values(values, self.block_number)
+        bl = grad_final_matrix_states
 
-        # transpose to switch the sequence and head dimensions
-        attention = torch.nn.functional.scaled_dot_product_attention(
-            queries.transpose(-3, -2),
-            (cache.get_full_keys(self.block_number) if use_cache else keys).transpose(-3, -2),
-            (cache.get_full_values(self.block_number) if use_cache else values).transpose(-3, -2),
-            is_causal = not use_cache,
-            dropout_p = self.config.dropout_rate if self.training else 0.0,
-            **mask_kwarg
-        ).transpose(-3, -2)
+        sequence_length = ctx.sequence_length
+        n_stages = math.ceil(math.log2(sequence_length))
+        for stage in range(n_stages):
+            stage_stride = 2 ** stage
+            bl[..., :-stage_stride, :, :] = bl[..., stage_stride:, :, :] @ tl[..., :-stage_stride, :, :] + bl[..., :-stage_stride, :, :]
+            tl[..., :-stage_stride, :, :] = tl[..., stage_stride:, :, :] @ tl[..., :-stage_stride, :, :]
 
+        grad_start_matrix_states = grad_before_start_matrix_states @ bl
 
-        return torch.nn.functional.dropout(
-            self.attention_down(
-                attention.flatten(-2)
-            ), 
-            p = self.config.dropout_rate,
-            training = self.training
-        )
-    
+        return grad_start_matrix_states
 
 
 
-
-class transformer_block(torch.nn.Module):
-    def __init__(self, config: transformer_config, block_number: int):
-        super(transformer_block, self).__init__()
+class mrun_block(torch.nn.Module):
+    def __init__(self, config: mrun_config):
+        super(mrun_block, self).__init__()
 
         self.config = config
+
+
+        if config.state_size % config.n_state_heads != 0:
+            raise ValueError("state size must be divisible by the number of state heads")
+        self.state_head_size = config.state_size // config.n_state_heads
+        
+        if self.state_head_size != math.isqrt(self.state_head_size) ** 2:
+            raise ValueError("state head size must be a peffect square to form the state head matrix")
+        self.state_head_order = math.isqrt(self.state_head_size)
+
+        if config.embedding_size % self.state_head_order != 0:
+            raise ValueError(f"embedding size must be divisible by the state head order ({self.state_head_order})")
+        self.embedding_state_head_order_chunk_size = config.embedding_size // (self.state_head_order * config.n_state_heads)
+
+        self.state_matrices_up = torch.nn.Linear(self.embedding_state_head_order_chunk_size, self.state_head_order, bias = False)
+        self.state_matrices_down = torch.nn.Linear(self.state_head_order, self.embedding_state_head_order_chunk_size, bias = False)
+
+        torch.nn.init.normal_(self.state_matrices_up.weight, mean = 0, std = 0.01 / (math.sqrt(self.embedding_state_head_order_chunk_size) * math.sqrt(self.state_head_order)))
+        torch.nn.init.normal_(self.state_matrices_down.weight, mean = 0, std = 0.1536 / math.sqrt(config.n_blocks))
 
 
         self.first_ln = torch.nn.LayerNorm(config.embedding_size, bias = False)
@@ -217,52 +127,73 @@ class transformer_block(torch.nn.Module):
 
         torch.nn.init.normal_(self.mlp[0].weight, mean = 0, std = 0.02)
         torch.nn.init.normal_(self.mlp[2].weight, mean = 0, std = 0.02 / math.sqrt(config.n_blocks))
+            
+    def parallel_mru(self, activations: torch.Tensor, last_state: Optional[torch.Tensor]) -> torch.Tensor:
+        new_matrices = torch.nn.functional.dropout(
+            self.state_matrices_up(activations.unflatten(-1, (self.config.n_state_heads, self.state_head_order, self.embedding_state_head_order_chunk_size))),
+            p = self.config.dropout_rate,
+            training = self.training
+        ) + torch.eye(self.state_head_order, device = activations.device)
+        
+        full_matrices = new_matrices if last_state is None else torch.cat((last_state.unsqueeze(dim = -4), new_matrices), dim = -4)
+        
+        parallel_mru_op_output = parallel_mru_class.apply(full_matrices.transpose(-3, -4)).transpose(-3, -4)
+        
+        states = parallel_mru_op_output if last_state is None else parallel_mru_op_output[..., 1:, :, :, :]
 
-        self.attention = transformer_attention(config, block_number)
+        output = self.state_matrices_down(states).flatten(-3, -1)
 
-    
-    def forward(self, activations: torch.Tensor, cache: Optional[transformer_cache] = None) -> torch.Tensor:
-        activations = activations + self.attention(self.first_ln(activations), cache)
+        return torch.nn.functional.dropout(
+            output,
+            p = self.config.dropout_rate,
+            training = self.training
+        ), states[-1]
+
+
+    def forward(self, activations: torch.Tensor, last_state: Optional[torch.Tensor]) -> torch.Tensor:
+        mru_out, new_state = self.parallel_mru(self.first_ln(activations), last_state)
+
+        activations = activations + mru_out
         activations = activations + self.mlp(self.second_ln(activations))
-        return activations
+        return activations, new_state
+
+
+
+
 
 
 
 
     
-class transformer_network(torch.nn.Module):
-    def __init__(self, config: transformer_config):
-        super(transformer_network, self).__init__()
+class mrun_network(torch.nn.Module):
+    def __init__(self, config: mrun_config):
+        super(mrun_network, self).__init__()
 
         self.config = config
 
-        
-        self.blocks = torch.nn.ModuleList([transformer_block(config, block_number) for block_number in range(config.n_blocks)])
+        self.blocks = torch.nn.ModuleList([mrun_block(config) for _ in range(config.n_blocks)])
         
         
         self.wte = torch.nn.Embedding(config.vocab_size, config.embedding_size)
         torch.nn.init.normal_(self.wte.weight, mean = 0, std = 0.02)
-
-        self.final_ln = torch.nn.LayerNorm(config.embedding_size, bias = False)
         
-        self.lm_head = torch.nn.Linear(config.embedding_size, config.vocab_size, bias = False)
-        self.lm_head.weight = self.wte.weight
+        self.lm_head_weights = self.wte.weight
 
     # index should start at 0
-    def forward(self, encodings: torch.Tensor, cache: Optional[transformer_cache] = None) -> torch.Tensor:
-        embeddings = torch.nn.functional.dropout(
+    def forward(self, encodings: torch.Tensor, last_state: list[Optional[torch.Tensor]]) -> tuple[torch.Tensor, list[torch.Tensor]]:
+        embeddings = torch.nn.functional.dropout( 
             self.wte(encodings),
             p = self.config.dropout_rate,
             training = self.training
         )
 
-        if cache is not None:
-            cache.increment_position(embeddings.size(-2))
-
-        for block in self.blocks:
-            embeddings = block(embeddings, cache)
+        for i, block in enumerate(self.blocks):
+            embeddings, last_state[i] = block.forward(embeddings, last_state[i])
         
-        embeddings = self.final_ln(embeddings)
-        logits = self.lm_head(embeddings)
+        logits = torch.nn.functional.linear(embeddings, weight = self.lm_head_weights)
 
-        return logits  
+        return logits, last_state
+        
+    
+    def get_initial_state(self) -> list[torch.Tensor]:
+        return ([None for _ in self.blocks])

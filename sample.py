@@ -1,7 +1,5 @@
 import torch
 
-from model import transformer_cache
-
 @torch.no_grad()
 # Sample from a starting letter
 def sample(model, tokenizer, sequence_start: str, temperature: float, max_length: int, device) -> str:
@@ -10,11 +8,11 @@ def sample(model, tokenizer, sequence_start: str, temperature: float, max_length
         torch.tensor(tokenizer.token_to_id(sequence_start), device = device)
     ]
     
-    cache = transformer_cache(model.config, device = device)
+    state = model.get_initial_state()
 
 
     for i in range(max_length):
-        logits = model.forward(sequence[-1].view(1), cache)
+        logits, state = model.forward(sequence[-1].view(1), state)
         
         outputs = torch.softmax(logits[-1].squeeze() / temperature, dim=0)
 

@@ -9,7 +9,6 @@ from dataclasses import dataclass
 from matplotlib import pyplot
 from typing import Optional
 
-from model import transformer_config
 from sample import sample
 
 
@@ -159,7 +158,7 @@ def train(settings, hyperparameters, model, dataset, tokenizer, device):
         
         inputs, labels = inputs.to(device), labels.to(device)
 
-        logits = model(inputs)
+        logits, _ = model(inputs, model.get_initial_state())
 
         # flatten batch and sequence dimensions into one dimension for computing the loss
         loss = criterion(logits.flatten(-3, -2), labels.flatten(-2, -1))
@@ -244,7 +243,7 @@ def train(settings, hyperparameters, model, dataset, tokenizer, device):
                 
                     inputs, labels = inputs.to(device), labels.to(device)
 
-                    logits = model(inputs)
+                    logits, _ = model(inputs, model.get_initial_state())
 
                     loss = criterion(logits.flatten(-3, -2), labels.flatten(-2, -1))
 
