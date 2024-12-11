@@ -130,7 +130,11 @@ class mrun_block(torch.nn.Module):
         torch.nn.init.normal_(self.mlp[2].weight, mean = 0, std = 0.02 / math.sqrt(config.n_blocks))
             
     def parallel_mru(self, activations: torch.Tensor, last_state: Optional[torch.Tensor]) -> torch.Tensor:
-        new_matrices = self.state_matrices_up(activations.unflatten(-1, (self.config.n_state_heads, self.state_head_order, self.embedding_state_head_order_chunk_size))) + torch.eye(self.state_head_order, device = activations.device)
+        new_matrices = torch.nn.functional.dropout(
+            self.state_matrices_up(activations.unflatten(-1, (self.config.n_state_heads, self.state_head_order, self.embedding_state_head_order_chunk_size))),
+            p = self.config.dropout_rate,
+            training = self.training
+        ) + torch.eye(self.state_head_order, device = activations.device)
         
         full_matrices = new_matrices if last_state is None else torch.cat((last_state.unsqueeze(dim = -4), new_matrices), dim = -4)
         
