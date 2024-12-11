@@ -106,12 +106,12 @@ class mrun_block(torch.nn.Module):
 
         if config.embedding_size % self.state_head_order != 0:
             raise ValueError(f"embedding size must be divisible by the state head order ({self.state_head_order})")
-        self.embedding_state_head_order_chunk_size = config.embedding_size // self.state_head_order
+        self.embedding_state_head_order_chunk_size = config.embedding_size // (self.state_head_order * config.n_state_heads)
 
         self.state_matrices_up = torch.nn.Linear(self.embedding_state_head_order_chunk_size, self.state_head_order, bias = False)
         self.state_matrices_down = torch.nn.Linear(self.state_head_order, self.embedding_state_head_order_chunk_size, bias = False)
 
-        torch.nn.init.normal_(self.state_matrices_up.weight, mean = 0, std = 0.1 / (math.sqrt(self.embedding_state_head_order_chunk_size) * math.sqrt(self.state_head_order)))
+        torch.nn.init.normal_(self.state_matrices_up.weight, mean = 0, std = 0.01 / (math.sqrt(self.embedding_state_head_order_chunk_size) * math.sqrt(self.state_head_order)))
         torch.nn.init.normal_(self.state_matrices_down.weight, mean = 0, std = 0.1536 / math.sqrt(config.n_blocks))
 
 
@@ -130,7 +130,7 @@ class mrun_block(torch.nn.Module):
         torch.nn.init.normal_(self.mlp[2].weight, mean = 0, std = 0.02 / math.sqrt(config.n_blocks))
             
     def parallel_mru(self, activations: torch.Tensor, last_state: Optional[torch.Tensor]) -> torch.Tensor:
-        new_matrices = self.state_matrices_up(activations.unflatten(-1, (self.config.n_state_heads, self.state_head_order, self.embedding_state_head_order_chunk_size))) * 0.1 + torch.eye(self.state_head_order, device = activations.device)
+        new_matrices = self.state_matrices_up(activations.unflatten(-1, (self.config.n_state_heads, self.state_head_order, self.embedding_state_head_order_chunk_size))) + torch.eye(self.state_head_order, device = activations.device)
         
         full_matrices = new_matrices if last_state is None else torch.cat((last_state.unsqueeze(dim = -4), new_matrices), dim = -4)
         
