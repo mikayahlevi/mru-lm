@@ -4,14 +4,10 @@
     "dropout_rate": 0.2,
 
     
-    "n_attn_heads": 6,
+    "n_state_heads": 6,
     
-    "key_size": 384,
-    "value_size": 384,
+    "state_size": 384,
 
-
-    "max_sequence_length": 1024,
-
-
+    
     "n_blocks": 6
 }
