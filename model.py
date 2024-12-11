@@ -39,9 +39,9 @@ class parallel_mru_class(torch.autograd.Function):
         return final_matrix_states
 
     @staticmethod
-    def backward(ctx, grad_output):
+    def backward(ctx, grad_final_matrix_states):
         def create_eye_for_shift(shape):
-            resized_eye = torch.eye(*shape[-2:], device = grad_output.device)
+            resized_eye = torch.eye(*shape[-2:], device = grad_final_matrix_states.device)
             while resized_eye.dim() < len(shape):
                 resized_eye = resized_eye.unsqueeze(0)
             
@@ -57,26 +57,21 @@ class parallel_mru_class(torch.autograd.Function):
         def create_zeros_for_shift(shape):
             new_shape = list(shape)
             new_shape[-3] = 1
-            return torch.zeros(new_shape, device = grad_output.device)
+            return torch.zeros(new_shape, device = grad_final_matrix_states.device)
         
         start_matrix_states, final_matrix_states = ctx.saved_tensors
-
-        transposed_final_matrix_states = final_matrix_states.transpose(-1, -2)
-
-        grad_final_matrix_states = grad_output
-
 
         # grad_before_start_matrix_states = torch.cat((create_eye_for_shift(transposed_final_matrix_states.shape), transposed_final_matrix_states[..., :-1, :, :]), dim = -3)
         # faster implementation
 
-        grad_before_start_matrix_states = transposed_final_matrix_states.roll(1, dims = -3)
+        grad_before_start_matrix_states = final_matrix_states.transpose(-1, -2).roll(1, dims = -3)
         grad_before_start_matrix_states[..., 0, :, :] = torch.eye(grad_before_start_matrix_states.size(-2), device = grad_before_start_matrix_states.device)
 
 
         # tl = torch.cat((start_matrix_states[..., 1:, :, :], create_zeros_for_shift(start_matrix_states.shape)), dim = -3).transpose(-1, -2)
         # faster implementation
 
-        tl = start_matrix_states.roll(-1, dims = -3).transpose(-1, -2)
+        tl = start_matrix_states.transpose(-1, -2).roll(-1, dims = -3)
         tl[..., -1, :, :] = torch.zeros((tl.size(-2), tl.size(-1)), device = tl.device)
 
         bl = grad_final_matrix_states
@@ -104,7 +99,7 @@ class mrun_block(torch.nn.Module):
         if config.state_size % config.n_state_heads != 0:
             raise ValueError("state size must be divisible by the number of state heads")
         self.state_head_size = config.state_size // config.n_state_heads
-        if self.state_head_size != math.isqrt(self.state_head_sizes) ** 2:
+        if self.state_head_size != math.isqrt(self.state_head_size) ** 2:
             raise ValueError("state head size must be a peffect square to form the state head matrix")
         self.state_head_order = math.isqrt(self.state_head_size)
 
@@ -112,8 +107,8 @@ class mrun_block(torch.nn.Module):
         self.state_matrices_up = torch.nn.Linear(config.embedding_size, config.state_size, bias = False)
         self.state_matrices_down = torch.nn.Linear(config.state_size, config.embedding_size, bias = False)
 
-        torch.nn.init.normal_(self.state_matrices_up.weight, mean = 0, std = 1 / math.sqrt(config.embedding_size))
-        torch.nn.init.normal_(self.state_matrices_down.weight, mean = 0, std = math.sqrt(config.embedding_size) * 0.02 / math.sqrt(config.n_blocks))
+        torch.nn.init.normal_(self.state_matrices_up.weight, mean = 0, std = 1 / (math.sqrt(config.embedding_size) * math.sqrt(self.state_head_order)))
+        torch.nn.init.normal_(self.state_matrices_down.weight, mean = 0, std = math.sqrt(config.embedding_size) * math.sqrt(self.state_head_order) * 0.02 * 0.02 / math.sqrt(config.n_blocks))
 
 
         self.first_ln = torch.nn.LayerNorm(config.embedding_size, bias = False)
@@ -138,7 +133,7 @@ class mrun_block(torch.nn.Module):
         parallel_mru_op_output = parallel_mru_class.apply(full_matrices.transpose(-3, -4)).transpose(-3, -4)
         
         states = parallel_mru_op_output if last_state is None else parallel_mru_op_output[..., 1:, :, :, :]
-        
+
         output = self.state_matrices_down(states.flatten(-3, -1))
 
         return torch.nn.functional.dropout(

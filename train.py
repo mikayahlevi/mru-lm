@@ -87,7 +87,11 @@ def configure_optimizer(model, hyperparameters):
 
     optim_groups = [
         {
-            'params': remove_params_with_names(model.named_parameters(), nodecay_param_names),
+            'params': get_params_with_names(model.named_parameters(), ['state_matrices_up']),
+            'lr': hyperparameters.peak_lr / 1.5
+        },
+        {
+            'params': remove_params_with_names(model.named_parameters(), nodecay_param_names + ['state_matrices_up']),
             'weight_decay': hyperparameters.weight_decay
         },
         {
