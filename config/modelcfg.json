@@ -4,9 +4,9 @@
     "dropout_rate": 0.2,
 
     
-    "n_state_heads": 1,
+    "n_state_heads": 6,
     
-    "state_size": 256,
+    "state_size": 384,
 
     
     "n_blocks": 6
