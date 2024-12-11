@@ -1,0 +1,26 @@
+{
+    "sequence_length": 256,
+    "batch_size": 64,
+
+
+    "total_steps": 5000,
+
+
+    "update_every": 1,
+
+    "schedule_every": 10,
+
+
+    "log_minor": true,
+    "log_minor_every": 20,
+    "sample_at_log_minor": false,
+    "save_stats_to_file_at_log_minor": false,
+    
+    
+    "log_major": true,
+    "log_major_every": 200,
+    "sample_at_log_major": true,
+    "plot_at_log_major": true,
+    "save_at_log_major": false,
+    "save_stats_to_file_at_log_major": true
+}
