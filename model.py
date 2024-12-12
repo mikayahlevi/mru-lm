@@ -112,7 +112,10 @@ class mrun_block(torch.nn.Module):
         self.state_matrices_down = torch.nn.Linear(self.state_head_order, self.embedding_state_head_order_chunk_size, bias = False)
 
         torch.nn.init.zeros_(self.state_matrices_up.weight)
-        torch.nn.init.normal_(self.state_matrices_down.weight, mean = 0, std = 0.1536 / math.sqrt(config.n_blocks))
+        torch.nn.init.normal_(self.state_matrices_down.weight, mean = 0, std = 0.02 * math.sqrt(config.state_size))
+
+        self.mru_out = torch.nn.Linear(config.embedding_size, config.embedding_size, bias = False)
+        torch.nn.init.normal_(self.mru_out.weight, mean = 0, std = 0.02 / math.sqrt(config.n_blocks))
 
 
         self.first_ln = torch.nn.LayerNorm(config.embedding_size, bias = False)
@@ -144,7 +147,7 @@ class mrun_block(torch.nn.Module):
         output = self.state_matrices_down(states).flatten(-3, -1)
 
         return torch.nn.functional.dropout(
-            output,
+            self.mru_out(output),
             p = self.config.dropout_rate,
             training = self.training
         ), states[-1]
