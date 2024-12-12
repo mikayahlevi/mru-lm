@@ -114,7 +114,7 @@ class mrun_block(torch.nn.Module):
             ),
             requires_grad = True
         )
-        self.state_matrices_update_scale = math.sqrt(config.embedding_size)
+        self.state_matrices_update_scale = 0.1 * (self.embedding_size / self.embedding_chunk_size)
         self.state_matrices_down = torch.nn.Linear(self.state_head_order, self.embedding_chunk_size, bias = False)
 
         torch.nn.init.normal_(self.state_matrices_down.weight, mean = 0, std = 0.02 * math.sqrt(config.state_size))
@@ -141,7 +141,7 @@ class mrun_block(torch.nn.Module):
             activations.unflatten(-1, (self.config.n_state_heads, self.state_head_order, self.embedding_chunk_size)) @ self.state_matrices_up,
             p = self.config.dropout_rate,
             training = self.training
-        ) + torch.eye(self.state_head_order, device = activations.device)
+        ) * self.state_matrices_update_scale + torch.eye(self.state_head_order, device = activations.device)
         
         full_matrices = new_matrices if last_state is None else torch.cat((last_state.unsqueeze(dim = -4), new_matrices), dim = -4)
         
