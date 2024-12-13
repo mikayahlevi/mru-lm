@@ -115,9 +115,14 @@ class mrun_block(torch.nn.Module):
             requires_grad = True
         )
         self.state_matrices_update_scale = 0.08 * (1 / self.state_head_order) * (config.embedding_size / self.embedding_chunk_size)
-        self.state_matrices_down = torch.nn.Linear(self.state_head_order, self.embedding_chunk_size, bias = False)
-
-        torch.nn.init.normal_(self.state_matrices_down.weight, mean = 0, std = 0.02 * math.sqrt(config.state_size))
+        self.state_matrices_down = torch.nn.Parameter(
+            torch.normal(
+                mean = 0,
+                std = 0.02 * math.sqrt(config.state_size),
+                size = (config.n_state_heads, self.state_head_order, self.embedding_chunk_size)
+            ),
+            requires_grad = True
+        )
 
         self.mru_out = torch.nn.Linear(config.embedding_size, config.embedding_size, bias = False)
         torch.nn.init.normal_(self.mru_out.weight, mean = 0, std = 0.02 / math.sqrt(config.n_blocks))
