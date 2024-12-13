@@ -24,48 +24,52 @@ $$
 
 The forward pass for the parallel scan is reasonably simple. I just used the Hillis-Steele prefix sum algorithm (except matmul instead of addition). The current implementation with the Hillis-Steele algorithm is somewhat inefficient for low parallelism because it does $O(n log_2 n)$ operations if $n$ is the sequence length, compared to another algorithm I plan on adding a branch for, the Brent-Kung algorithm, which does $O(n)$ operations but conversely has half the parallelism.
 
-The backwards pass for the MRU way more complicated. $\partial F(H_j)$ represents output gradient of H, or the the derivative in respect to the rest of the network and the loss function. The closed notation for the partial derivative is
+The backwards pass for the MRU way more complicated. $\frac{\partial F(H_j)}{H_j}$ represents output gradient of $H$, or the the partial derivative in respect to the rest of the network and the loss function. The closed notation for the partial derivative is
 
 $$
 \frac{\partial F(H_j)}{\partial X_i} = 
 \begin{cases} 
-\frac{\partial F(H_j)}{\partial H} & \text{if } i = j = 1 \\
-\frac{\partial F(H_j)}{\partial H} \left(\prod_{k=2}^{j} X_k \right)^T & \text{if } i = 1 \text{ and } j > 1 \\
-\left(\prod_{k=1}^{i-1} X_k \right)^T \frac{\partial F(H_j)}{\partial H} & \text{if } i = j = s \\
-\left(\prod_{k=1}^{i-1} X_k \right)^T \frac{\partial F(H_j)}{\partial H} \left(\prod_{k=i+1}^{j} X_k \right)^T & \text{if } 1 < i \leq j < s \\
-0 & \text{if } i > j 
+\frac{\partial F(H_j)}{\partial H_j} & \text{if } j = i = 1 \\
+\frac{\partial F(H_j)}{\partial H_j} \left(\prod_{k=2}^{j} X_k \right)^T & \text{if } j > i = 1 \\
+\left(\prod_{k=1}^{i-1} X_k \right)^T \frac{\partial F(H_j)}{\partial H_j} & \text{if } j = i \neq 1 \\
+\left(\prod_{k=1}^{i-1} X_k \right)^T \frac{\partial F(H_j)}{\partial H_j} \left(\prod_{k=i+1}^{j} X_k \right)^T & \text{if } j > i \neq 1 \\
+0 & \text{if } j < i
 \end{cases}
 $$
 
 The gradient of $X_i$ is
 
 $$
-\nabla X_i = \sum_{l=i}^{s} \frac{\partial F(H_l)}{\partial X_i}
+\nabla X_i = \sum_{j=1}^{s} \frac{\partial F(H_j)}{\partial X_i}
 $$
 
-The expanded gradient of $X_i$ is
+The expanded gradient of $X_j$ is
 
 $$
-\nabla X_i = \sum_{l=i}^{s} 
+\nabla X_i = \sum_{j=1}^{s} 
 \begin{cases} 
-\frac{\partial F(H_l)}{\partial H} & \text{if } i = l = 1 \\
-\frac{\partial F(H_l)}{\partial H} \left(\prod_{k=2}^{l} X_k \right)^T & \text{if } i = 1 \text{ and } l > 1 \\
-\left(\prod_{k=1}^{i-1} X_k \right)^T \frac{\partial F(H_l)}{\partial H} & \text{if } i = l = s \\
-\left(\prod_{k=1}^{i-1} X_k \right)^T \frac{\partial F(H_l)}{\partial H} \left(\prod_{k=i+1}^{l} X_k \right)^T & \text{if } 1 < i \leq l < s \\
-0 & \text{if } i > l 
+\frac{\partial F(H_j)}{\partial H_j} & \text{if } j = i = 1 \\
+\frac{\partial F(H_j)}{\partial H_j} \left(\prod_{k=2}^{j} X_k \right)^T & \text{if } j > i = 1 \\
+\left(\prod_{k=1}^{i-1} X_k \right)^T \frac{\partial F(H_j)}{\partial H_j} & \text{if } j = i \neq 1 \\
+\left(\prod_{k=1}^{i-1} X_k \right)^T \frac{\partial F(H_j)}{\partial H_j} \left(\prod_{k=i+1}^{j} X_k \right)^T & \text{if } j > i \neq 1 \\
+0 & \text{if } j < i
 \end{cases}
 $$
 
 If we define $A_{i+1} = H_{i}^T$ and $A_1 = I$, by factoring out $ A_i$ the expression can be rewritten like:
 
 $$
-\nabla X_i = A_i \sum_{l=i}^{s} 
+\nabla X_i = A_i \sum_{j=1}^{s} 
 \begin{cases} 
-\frac{\partial F(H_l)}{\partial H} & \text{if } i = l = 1 \\
-\frac{\partial F(H_l)}{\partial H} \left(\prod_{k=2}^{l} X_k \right)^T & \text{if } i = 1 \text{ and } l > 1 \\
-\frac{\partial F(H_l)}{\partial H} & \text{if } i = l = s \\
-\frac{\partial F(H_l)}{\partial H} \left(\prod_{k=i+1}^{l} X_k \right)^T & \text{if } 1 < i \leq l < s \\
-0 & \text{if } i > l 
+\frac{\partial F(H_j)}{\partial H_j} & \text{if } j = i \\
+\frac{\partial F(H_j)}{\partial H_j} \left(\prod_{k=i+1}^{j} X_k \right)^T & \text{if } j > i \\
+0 & \text{if } j < i
+\end{cases}
+=
+A_i \sum_{j=i}^{s} 
+\begin{cases} 
+\frac{\partial F(H_j)}{\partial H_j} & \text{if } j = i \\
+\frac{\partial F(H_j)}{\partial H_j} \left(\prod_{k=i+1}^{j} X_k \right)^T & \text{if } j > i
 \end{cases}
 $$
 
