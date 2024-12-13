@@ -154,7 +154,7 @@ class mrun_block(torch.nn.Module):
         
         states = parallel_mru_op_output if last_state is None else parallel_mru_op_output[..., 1:, :, :, :]
 
-        output = self.state_matrices_down(states).flatten(-3, -1)
+        output = (states @ self.state_matrices_down).flatten(-3, -1)
 
         return torch.nn.functional.dropout(
             self.mru_out(output),
