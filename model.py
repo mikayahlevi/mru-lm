@@ -118,7 +118,7 @@ class mrun_block(torch.nn.Module):
         self.state_matrices_down = torch.nn.Parameter(
             torch.normal(
                 mean = 0,
-                std = 0.02 * math.sqrt(config.state_size),
+                std = 0.02 / math.sqrt(config.state_size),
                 size = (config.n_state_heads, self.state_head_order, self.embedding_chunk_size)
             ),
             requires_grad = True
@@ -154,7 +154,7 @@ class mrun_block(torch.nn.Module):
         
         states = parallel_mru_op_output if last_state is None else parallel_mru_op_output[..., 1:, :, :, :]
 
-        output = (states @ self.state_matrices_down).flatten(-3, -1)
+        output = ((states @ self.state_matrices_down) * self.config.state_size).flatten(-3, -1)
 
         return torch.nn.functional.dropout(
             self.mru_out(output),
