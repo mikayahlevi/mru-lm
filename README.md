@@ -85,6 +85,7 @@ $$
 $$
 
 I'll call the second part of the gradient a new variable, $B_i$:
+
 $$
 B_i = \sum_{j=i}^{s}
 \begin{cases}
