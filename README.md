@@ -111,7 +111,14 @@ X_{i+1}^T & 0 \\
 \end{bmatrix}
 $$
 
-If we let $U_i = \begin{cases} X_{i+1}^T & \text{if } i \neq s \\ 0 & \text{if } i = s \end{cases}$ and $L_i = \frac{\partial F(H_i)}{\partial H_i}$, then
+If we let
+
+$$
+U_i = \begin{cases} X_{i+1}^T & \text{if } i \neq s \\ 0 & \text{if } i = s \end{cases}
+L_i = \frac{\partial F(H_i)}{\partial H_i}
+$$
+
+then
 
 $$
 \begin{bmatrix}
