@@ -9,7 +9,13 @@ Use the command `python main.py --device=cuda --dataset=tiny_stories.py`. Set `-
 ### Introduction
 
 This is a project which implements the matrix recurrent unit (MRU) in place of attention. This repo is forked from my repo transformer-train-script.
-I have limited compute and experience with datascience, so I haven't been able to test the LM on much other than a toy dataset, shakespeare-char. Based on the testing on that dataset, the MRU seems to work well in comparison to attention.
+I have limited compute and experience with datascience, so I haven't been able to test the LM on much other than a toy dataset, shakespeare-char. Based on the testing on that dataset, the MRU seems to work well in comparison to attention. The MRU also has the advantage of having linear complexity in regards to sequence length, in contrast to attention's quadratic complexity.
+![MRU-LM vs Transformer](mru-lm_vs_transformer.png)
+The above loss plot is the first train attempt, using the independent-heads branch of this repo and my other repo <https://github.com/mikayahlevi/transformer-train-script>.
+
+### Moving Forward
+
+Firstly, I would like to test this on larger and more informative datasets. If anyone wants to help me with this, reach out to me at <mikayahlevi@gmail.com> or through GitHub (if that's a thing, I'm not experienced with GitHub lol). Secondly, the MRU is still relatively slow compared to the amount of theoretical operations it should take, so I would like to investigate writing a CUDA kernel or just trying to optimize the PyTorch code.
 
 ### Explanation
 
@@ -21,7 +27,7 @@ Matrix multiplication is associative but not commutative. The associativity mean
 #### Details of the Computation
 
 The efficient version of the computation may have been figured out elsewhere, but I couldn't find any other sources that do this, so I will show the derivation here.
-Sorry for my most likely incorrect mathmatical notation. I am not well versed in the math fields that this scan involves. Note that the $^T$ symbol refers to transposing the last two dimensions.
+Sorry for my most likely incorrect mathematical notation. I am not well versed in the math fields that this computation involves. Note that the $^T$ symbol refers to transposing the last two dimensions.
 The closed notation ($1 \leq j \leq s$, $s$ is the sequence length) for the MRU is
 
 $$
