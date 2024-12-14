@@ -99,8 +99,7 @@ $$
 \begin{bmatrix}
 ? & 0 \\
 B_i & I
-\end{bmatrix}
-=
+\end{bmatrix} =
 \begin{bmatrix}
 I & 0 \\
 B_{i+1} & I
@@ -123,8 +122,7 @@ $$
 \begin{bmatrix}
 ? & 0 \\
 B_i & I
-\end{bmatrix}
-=
+\end{bmatrix} =
 \prod_{k=0}^{s-i}
 \begin{bmatrix}
 U_{s-k} & 0 \\
