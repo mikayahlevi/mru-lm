@@ -114,19 +114,17 @@ $$
 If we let
 
 $$
-U_i = \begin{cases} X_{i+1}^T & \text{if } i \neq s \\ 0 & \text{if } i = s \end{cases} \\
+U_i = \begin{cases} X_{i+1}^T & \text{if } i \neq s \\ 0 & \text{if } i = s \end{cases}
+$$
+
+and
+
+$$
 L_i = \frac{\partial F(H_i)}{\partial H_i}
 $$
 
-then
+then we can express the equation with $B_i$ like:
 
-$$
-\begin{bmatrix}
-? & 0 \\
-B_i & I
-\end{bmatrix}
-$$
-can be expressed like
 $$
 \begin{bmatrix}
 ? & 0 \\
