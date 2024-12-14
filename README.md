@@ -69,7 +69,7 @@ $$
 \end{cases}
 $$
 
-If we define $A_{i+1} = H_{i}^T$ and $A_1 = I$, by factoring out $A_i$ the expression can be rewritten like:
+If we define $A_{i+1} = H_{i}^T$ and $A_1 = I$, by factoring out $A_i$ the expression can be rewritten like
 
 $$
 \nabla X_i = A_i \sum_{j=1}^{s}
@@ -86,7 +86,7 @@ A_i \sum_{j=i}^{s}
 \end{cases}
 $$
 
-I'll call the second part of the gradient a new variable, $B_i$:
+I'll call the second part of the gradient a new variable, $B_i$
 $$
 B_i = \sum_{j=i}^{s}
 \begin{cases}
@@ -117,7 +117,7 @@ If we let $U_i = \begin{cases} X_{i+1}^T & \text{if } i \neq s \\ 0 & \text{if }
 ? & 0 \\
 B_i & I
 \end{bmatrix}
-$ can be expressed like:
+$ can be expressed like
 $$
 \begin{bmatrix}
 ? & 0 \\
