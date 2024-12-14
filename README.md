@@ -11,6 +11,7 @@ Use the command `python main.py --device=cuda --dataset=tiny_stories.py`. Set `-
 This is a project which implements the matrix recurrent unit (MRU) in place of attention. This repo is forked from my repo transformer-train-script.
 I have limited compute and experience with datascience, so I haven't been able to test the LM on much other than a toy dataset, shakespeare-char. Based on the testing on that dataset, the MRU seems to work well in comparison to attention. The MRU also has the advantage of having linear complexity in regards to sequence length, in contrast to attention's quadratic complexity.
 ![MRU-LM vs Transformer](mru-lm_vs_transformer.png)
+
 The above loss plot is the first train attempt, using the independent-heads branch of this repo and my other repo <https://github.com/mikayahlevi/transformer-train-script>.
 
 ### Moving Forward
