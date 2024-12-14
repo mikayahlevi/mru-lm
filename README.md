@@ -139,4 +139,4 @@ $$
 
 Which can be computed with a reverse parallel scan because matrix multiplication is associative.
 
-Combining all of this, we get the final gradient for the input matrices, $X$, which is $\nabla X_i = A_i B_i$, which can be effeciently computed using two parallel scans.
+Combining all of this, we get the final gradient for the input matrices, $X$, which is $\nabla X_i = A_i B_i$, which can be effeciently computed using a parallel scan and the output of the forward pass.
