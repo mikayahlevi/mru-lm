@@ -22,14 +22,14 @@ Firstly, I would like to test this on larger and more informative datasets. If a
 
 #### General Idea
 
-The idea of a matrix recurrent unit is that dictated by the update rule $H_t = H_{t-1} X_{t-1}$,  and $H_1 = X_1$ where $X$ and $H$ are matrices. I tried generating matrix $X$ by different methods in the different branches. All of the ways to generate X and the output, Y, are arbitrary combinations of linears and reshapes and just based on what I found worked well.  
+The idea of a matrix recurrent unit is dictated by the update rule $H_t = H_{t-1} X_{t-1}$,  and $H_1 = X_1$ where $X$ and $H$ are $\mathbb{R}^{s \times n \times n}$ sequences of square matrices. I tried generating matrix $X$ by different methods in the different branches. All of the ways to generate X and the output, Y, are arbitrary combinations of linears and reshapes and just based on what I found worked well.
 Matrix multiplication is associative but not commutative. The associativity means I can compute the cumulative matrix product using an (inclusive) parallel scan. The lack of commutativity means that the order of tokens is automatically incorporated into the MRU.
 
 #### Details of the Computation
 
 The efficient version of the computation may have been figured out elsewhere, but I couldn't find any other sources that do this, so I will show the derivation here.
 Sorry for my most likely incorrect mathematical notation. I am not well versed in the math fields that this computation involves. Note that the $^T$ symbol refers to transposing the last two dimensions.
-The closed notation ($1 \leq j \leq s$, $s$ is the sequence length) for the MRU is
+The closed form ($1 \leq j \leq s$) for the MRU is
 
 $$
 H_j = \prod_{i=1}^{j} X_i
@@ -37,7 +37,7 @@ $$
 
 The forward pass for the parallel scan is reasonably simple. I just used the Hillis-Steele prefix sum algorithm (except matmul instead of addition). The current implementation with the Hillis-Steele algorithm is somewhat inefficient for low parallelism because it does $O(n log_2 n)$ operations if $n$ is the sequence length, compared to another algorithm I plan on adding a branch for, the Brent-Kung algorithm, which does $O(n)$ operations but conversely has half the parallelism.
 
-The backwards pass for the MRU way more complicated. $\frac{\partial F(H_j)}{H_j}$ represents output gradient of $H$, or the the partial derivative in respect to the rest of the network and the loss function. The closed notation for the partial derivative is
+The backwards pass for the MRU way more complicated. $\frac{\partial F(H_j)}{H_j}$ represents output gradient of $H$, or the the partial derivative in respect to the rest of the network and the loss function. The closed form for the partial derivative is
 
 $$
 \frac{\partial F(H_j)}{\partial X_i} =
@@ -98,16 +98,36 @@ You can see $B_s = \frac{\partial F(H_s)}{\partial H_s}$. The recurrent form for
 
 $$
 \begin{bmatrix}
-? & 0 \\
+0 & 0 \\
 B_i & I
 \end{bmatrix} =
 \begin{bmatrix}
-I & 0 \\
+0 & 0 \\
 B_{i+1} & I
 \end{bmatrix}
 \begin{bmatrix}
 X_{i+1}^T & 0 \\
 \frac{\partial F(H_i)}{\partial H_i} & I
+\end{bmatrix} =
+\begin{bmatrix}
+0 & 0 \\
+B_{s} & I
+\end{bmatrix}
+\begin{bmatrix}
+X_{s}^T & 0 \\
+\frac{\partial F(H_{s-1})}{\partial H_{s-1}} & I
+\end{bmatrix}
+\begin{bmatrix}
+X_{s-1}^T & 0 \\
+\frac{\partial F(H_{s-2})}{\partial H_{s-2}} & I
+\end{bmatrix} \ldots
+\begin{bmatrix}
+X_{i+1}^T & 0 \\
+\frac{\partial F(H_{i+1})}{\partial H_{i+1}} & I
+\end{bmatrix}
+\begin{bmatrix}
+X_{i+1}^T & 0 \\
+\frac{\partial F(H_{i})}{\partial H_{i}} & I
 \end{bmatrix}
 $$
 
@@ -128,7 +148,7 @@ then we can express the equation with $B_i$ like:
 
 $$
 \begin{bmatrix}
-? & 0 \\
+0 & 0 \\
 B_i & I
 \end{bmatrix} =
 \prod_{k=0}^{s-i}
@@ -140,4 +160,4 @@ $$
 
 Which can be computed with a reverse parallel scan because matrix multiplication is associative.
 
-Combining all of this, we get the final gradient for the input matrices, $X$, which is $\nabla X_i = A_i B_i$, which can be effeciently computed using a parallel scan and the output of the forward pass.
+Combining all of this, we get the final gradient for the input matrices, $X$, which is $\nabla X_i = A_i B_i$, which can be efficiently computed using a parallel scan and the output of the forward pass.
