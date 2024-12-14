@@ -114,6 +114,10 @@ class mrun_block(torch.nn.Module):
             ),
             requires_grad = True
         )
+        # this scaling factor and the init for state_matrices_down is based on the μP paper
+        # https://arxiv.org/abs/2412.08905
+        # https://github.com/microsoft/mup
+        # the scaling should make maximal update for state_matrices_up and state_matrices_down the same as the rest of the network.
         self.state_matrices_update_scale = 0.08 * (1 / self.state_head_order) * (config.embedding_size / self.embedding_chunk_size)
         self.state_matrices_down = torch.nn.Parameter(
             torch.normal(
@@ -154,6 +158,8 @@ class mrun_block(torch.nn.Module):
         
         states = parallel_mru_op_output if last_state is None else parallel_mru_op_output[..., 1:, :, :, :]
 
+        # multiplying by (self.config.embedding_size / self.state_head_order) is also part lr scaling
+        # this allows the gradients to be larger because less inputs are being summed.
         output = ((states @ self.state_matrices_down) * (self.config.embedding_size / self.state_head_order)).flatten(-3, -1)
 
         return torch.nn.functional.dropout(
