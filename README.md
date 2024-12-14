@@ -114,7 +114,8 @@ $$
 If we let
 
 $$
-U_i = \begin{cases} X_{i+1}^T & \text{if } i \neq s \\ 0 & \text{if } i = s \end{cases}
+U_i = \begin{cases} X_{i+1}^T & \text{if } i \neq s \\
+0 & \text{if } i = s \end{cases}
 $$
 
 and
