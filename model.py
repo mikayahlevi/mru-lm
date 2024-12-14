@@ -5,6 +5,8 @@ import math
 from typing import Optional
 from dataclasses import dataclass
 
+from parallel_mru_op import parallel_mru_op
+
 @dataclass
 class mrun_config:
     vocab_size: int
@@ -85,7 +87,7 @@ class mrun_block(torch.nn.Module):
         
         full_matrices = new_matrices if last_state is None else torch.cat((last_state.unsqueeze(dim = -4), new_matrices), dim = -4)
         
-        parallel_mru_op_output = parallel_mru_class.apply(full_matrices.transpose(-3, -4)).transpose(-3, -4)
+        parallel_mru_op_output = parallel_mru_op(full_matrices.transpose(-3, -4)).transpose(-3, -4)
         
         states = parallel_mru_op_output if last_state is None else parallel_mru_op_output[..., 1:, :, :, :]
 
