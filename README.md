@@ -69,21 +69,10 @@ $$
 \end{cases}
 $$
 
-If we define $A_{i+1} = H_{i}^T$ and $A_1 = I$, by factoring out $A_i$ the expression can be rewritten like
+If we define $A_{i+1} = H_{i}^T$ and $A_1 = I$, by factoring out $A_i$ the expression can be rewritten like:
 
 $$
-\nabla X_i = A_i \sum_{j=1}^{s}
-\begin{cases}
-\frac{\partial F(H_j)}{\partial H_j} & \text{if } j = i \\
-\frac{\partial F(H_j)}{\partial H_j} \left(\prod_{k=i+1}^{j} X_k \right)^T & \text{if } j > i \\
-0 & \text{if } j < i
-\end{cases}
-=
-A_i \sum_{j=i}^{s}
-\begin{cases}
-\frac{\partial F(H_j)}{\partial H_j} & \text{if } j = i \\
-\frac{\partial F(H_j)}{\partial H_j} \left(\prod_{k=i+1}^{j} X_k \right)^T & \text{if } j > i
-\end{cases}
+\nabla X_i = A_i
 $$
 
 I'll call the second part of the gradient a new variable, $B_i$
