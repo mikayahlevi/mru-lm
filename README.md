@@ -59,8 +59,8 @@ $$
 The expanded gradient of $X_j$ is
 
 $$
-\nabla X_i = \sum_{j=1}^{s} 
-\begin{cases} 
+\nabla X_i = \sum_{j=1}^{s}
+\begin{cases}
 \frac{\partial F(H_j)}{\partial H_j} & \text{if } j = i = 1 \\
 \frac{\partial F(H_j)}{\partial H_j} \left(\prod_{k=2}^{j} X_k \right)^T & \text{if } j > i = 1 \\
 \left(\prod_{k=1}^{i-1} X_k \right)^T \frac{\partial F(H_j)}{\partial H_j} & \text{if } j = i \neq 1 \\
@@ -69,7 +69,7 @@ $$
 \end{cases}
 $$
 
-If we define $A_{i+1} = H_{i}^T$ and $A_1 = I$, by factoring out $ A_i$ the expression can be rewritten like:
+If we define $A_{i+1} = H_{i}^T$ and $A_1 = I$, by factoring out $A_i$ the expression can be rewritten like:
 
 $$
 \nabla X_i = A_i \sum_{j=1}^{s}
