@@ -114,7 +114,7 @@ $$
 If we let
 
 $$
-U_i = \begin{cases} X_{i+1}^T & \text{if } i \neq s \\ 0 & \text{if } i = s \end{cases}
+U_i = \begin{cases} X_{i+1}^T & \text{if } i \neq s \\ 0 & \text{if } i = s \end{cases} \\
 L_i = \frac{\partial F(H_i)}{\partial H_i}
 $$
 
@@ -138,6 +138,7 @@ U_{s-k} & 0 \\
 L_{s-k} & 1
 \end{bmatrix}
 $$
+
 Which can be computed with a reverse parallel scan because matrix multiplication is associative.
 
 Combining all of this, we get the final gradient for the input matrices, $X$, which is
