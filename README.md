@@ -26,7 +26,7 @@ The idea of a matrix recurrent unit is dictated by the update rule $H_t = H_{t-1
 
 - Matrix multiplication is associative but not commutative. The associativity means I can compute the cumulative matrix product using an (inclusive) parallel scan. The lack of commutativity means that the order of tokens is automatically incorporated into the MRU.
 - When you try to do this scan on an traditional RNN, the number of operations scales cubically with the amount of elements in the output state, meaning that limited information is retained compared to the amount of computation. On the other hand, if the states are matrices, the number of operations as a function of elements in the output state is $(n^2)^\frac{3}{2}$, where $n^2$ is the number of elements in the square $n \times n$ output matrix state. Some more info here: <https://arxiv.org/abs/1709.04057>.
-- When processing the tokens sequentially or in parallel with the (not-yet implemented) Brent Kung parallel scan, the network scales linearly with time in contrast to attention which scales quadratically with time.
+- When processing the tokens sequentially or in parallel with the Brent-Kung parallel scan, the network scales linearly with time in contrast to attention which scales quadratically with time.
 
 #### Details of the Computation
 
@@ -38,7 +38,8 @@ $$
 H_j = \prod_{i=1}^{j} X_i
 $$
 
-The forward pass for the parallel scan is reasonably simple. I just used the Hillis-Steele prefix sum algorithm (except matmul instead of addition). The current implementation with the Hillis-Steele algorithm is somewhat inefficient for low parallelism because it does $O(s log_2 s)$ operations if $s$ is the sequence length, compared to another algorithm I plan on adding a branch for, the Brent-Kung algorithm, which does $O(s)$ operations but conversely has half the parallelism.
+The forward pass for the parallel scan is reasonably simple. I just used the Brent-Kung and Hillis-Steele prefix sum algorithms (which you can switch between) except matmul instead of addition. 
+The Brent-Kung algorithm is advantageous for low parallelism because it does $s$ operations if $s$ is the sequence length, while Hillis-Steele has double the parallelism but however tales $s log_2(s)$ operations.
 
 The backwards pass for the MRU way more complicated. $\frac{\partial F(H_j)}{H_j}$ represents output gradient of $H$, or the the partial derivative in respect to the rest of the network and the loss function. The closed form for the partial derivative is
 
