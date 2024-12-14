@@ -61,16 +61,21 @@ class parallel_mru_class(torch.autograd.Function):
         
         start_matrix_states, final_matrix_states = ctx.saved_tensors
 
-        # grad_before_start_matrix_states = torch.cat((create_eye_for_shift(transposed_final_matrix_states.shape), transposed_final_matrix_states[..., :-1, :, :]), dim = -3)
-        # faster implementation
+        # grad_before_start_matrix_states is A as described in the README
+        # tl is U as described in the README
+        # bl is L as described in the README
 
+
+        # grad_before_start_matrix_states = torch.cat((create_eye_for_shift(transposed_final_matrix_states.shape), transposed_final_matrix_states[..., :-1, :, :]), dim = -3)
+        
+        # faster implementation:
         grad_before_start_matrix_states = final_matrix_states.transpose(-1, -2).roll(1, dims = -3)
         grad_before_start_matrix_states[..., 0, :, :] = torch.eye(grad_before_start_matrix_states.size(-2), device = grad_before_start_matrix_states.device)
 
 
         # tl = torch.cat((start_matrix_states[..., 1:, :, :], create_zeros_for_shift(start_matrix_states.shape)), dim = -3).transpose(-1, -2)
-        # faster implementation
-
+        
+        # faster implementation:
         tl = start_matrix_states.transpose(-1, -2).roll(-1, dims = -3)
         tl[..., -1, :, :] = torch.zeros((tl.size(-2), tl.size(-1)), device = tl.device)
 
