@@ -42,7 +42,7 @@ The number of operations for the MRU itself in is:
 - Using recurrence
 
 $$
-s h (d_o)^2 = s h d_s
+s h (d_o)^2 = s d_s
 $$
 
 - Using the Brent-Kung scan
