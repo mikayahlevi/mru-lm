@@ -84,7 +84,7 @@ Therefore, $W_{out}$ is a $h \times d_h \times d_e$ tensor, which also has the e
 After finishing this project, I've been informed that this project actually has quite a bit of overlap with DeltaNet (<https://arxiv.org/abs/2102.11174>) and RWKV7 (<https://x.com/BlinkDL_AI/status/1833863117480280528>). Note that I may misunderstand these other projects. The recurrence relation of RWKV7 and DeltaNet is almost a subset of the MRU with additional structure on $X$, except they also have a term that is added to (the equivalent of) $H_t$ at each timestep. Despite the overlap, the MRU still has a two key differences.
 
 - RWKV7 and DeltaNet don't derive an effecient scan like I do in the next section. The paper Parallelizing Linear Transformers with the Delta Rule
-over Sequence Length <https://arxiv.org/pdf/2406.06484> does derive a less parallel (if I'm not mistaken) chunkwise form, though.
+over Sequence Length (<https://arxiv.org/pdf/2406.06484>) does derive a less parallel (if I'm not mistaken) chunkwise form, though.
 - The MRU deconstructs the states to extract one output feature per state matrix element by reshaping it. DeltaNet and RWKV, on the other hand, only extract the square root of the number of elements per state matrix, leading to more computation for an equal number of features.
 
 ### Efficient Scan
