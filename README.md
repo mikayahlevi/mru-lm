@@ -85,7 +85,7 @@ After finishing this project, I've been informed that this project actually has 
 
 - RWKV7 and DeltaNet don't derive an effecient scan like I do in the next section. The paper Parallelizing Linear Transformers with the Delta Rule
 over Sequence Length (<https://arxiv.org/pdf/2406.06484>) does derive a less parallel (if I'm not mistaken) chunkwise form, though.
-- The MRU deconstructs the states to extract one output feature per state matrix element by reshaping it. DeltaNet and RWKV, on the other hand, only extract the square root of the number of elements per state matrix, leading to more computation for an equal number of features.
+- The MRU deconstructs the states to extract one output feature per state matrix element by reshaping it. DeltaNet and RWKV, on the other hand, only extract the square root of the number of elements per state matrix by using the matrices as weight for a linear, leading to more computation for an equal number of features.
 
 ### Efficient Scan
 
