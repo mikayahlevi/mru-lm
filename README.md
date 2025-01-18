@@ -22,7 +22,7 @@ I have limited compute and experience with datascience, so I haven't been able t
 
 #### General Idea
 
-The idea of a matrix recurrent unit is dictated by the update rule $H_t = H_{t-1} X_{t-1}$,  and $H_1 = X_1$ where $X$ and $H$ are $\mathbb{R}^{s \times d_o \times d_o}$ sequences of square matrices ($d_o$ will be clarified later). The primary difference between this and a traditional RNN is that no initial vector is passed through the linears, instead the first state is a matrix, leading to the output also being a matrix. My motivation for coming up with this idea are based on the following reasons:
+The idea of a matrix recurrent unit is dictated by the update rule $H_t = H_{t-1} X_{t-1}$,  and $H_1 = X_1$ where $X$ and $H$ are $\mathbb{R}^{s \times d_o \times d_o}$ sequences of square matrices ($d_o$ will be clarified later). My motivation for coming up with this idea are based on the following reasons:
 
 - Matrix multiplication is associative but not commutative. The associativity means I can compute the cumulative matrix product using an (inclusive) parallel scan. The lack of commutativity means that the order of tokens is automatically incorporated into the MRU.
 - When you try to do this scan on an traditional RNN, the number of operations scales cubically with the amount of elements in the output state, meaning that limited information is retained compared to the amount of computation. On the other hand, if the states are matrices, the number of operations as a function of elements in the output state is $((d_o)^2)^\frac{3}{2}$, where $(d_o)^2$ is the number of elements in the square $d_o \times d_o$ output matrix state. Some more info here: <https://arxiv.org/abs/1709.04057>.
@@ -35,14 +35,14 @@ The idea of a matrix recurrent unit is dictated by the update rule $H_t = H_{t-1
 For the rest of this document, let's call the sequence length $s$, the number of heads $h$, the embedding size of the network $d_e$. and the state size of the network $d_s$.
 The head size, consequently, is $d_h = \frac{d_s}{h}$.
 The matrix state order, or the width/height of the matrix states is $d_o = \sqrt{d_h} = \sqrt{\frac{d_s}{h}}$.
-Lastly, the embedding state chunk size is $d_c = \frac{d_e}{h}$.
+Lastly, the embedding state chunk size is $d_c = \frac{d_h}{d_o}$.
 
 The number of operations for the MRU itself in is:
 
 - Using recurrence
 
 $$
-s h (d_o)^2 = s d_s
+s h (d_o)^\frac{3}{2} = s d_o d_s
 $$
 
 - Using the Brent-Kung scan
@@ -215,7 +215,7 @@ B_i & I
 \prod_{k=0}^{s-i}
 \begin{bmatrix}
 U_{s-k} & 0 \\
-L_{s-k} & 1
+L_{s-k} & I
 \end{bmatrix}
 $$
 
