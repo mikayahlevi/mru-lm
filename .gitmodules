@@ -1,0 +1,3 @@
+[submodule "mru_scans/cuda_mru"]
+	path = mru_scans/cuda_mru
+	url = https://github.com/mikayahlevi/cuda_mru.git

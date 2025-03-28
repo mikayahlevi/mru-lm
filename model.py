@@ -5,7 +5,9 @@ import math
 from typing import Optional
 from dataclasses import dataclass
 
-from parallel_mru_op import parallel_mru_op
+# set to mru_scans.bk_mru, mru_scans.hs_mru, or mru_scans.cuda_mru
+# cuda_mru is the fastest but is still a work in progress and therefore only supports certain tensor shapes
+from mru_scans.cuda_mru import op as parallel_mru_op
 
 @dataclass
 class mru_lm_config:
@@ -47,6 +49,7 @@ class mru_lm_block(torch.nn.Module):
             ),
             requires_grad = True
         )
+
         # this scaling factor and the init for state_matrices_down is based on the μP paper
         # https://arxiv.org/abs/2412.08905
         # https://github.com/microsoft/mup
@@ -78,7 +81,7 @@ class mru_lm_block(torch.nn.Module):
         torch.nn.init.normal_(self.mlp[0].weight, mean = 0, std = 0.02)
         torch.nn.init.normal_(self.mlp[2].weight, mean = 0, std = 0.02 / math.sqrt(config.n_blocks))
             
-    def parallel_mru(self, activations: torch.Tensor, last_state: Optional[torch.Tensor]) -> torch.Tensor:
+    def mru(self, activations: torch.Tensor, last_state: Optional[torch.Tensor]) -> torch.Tensor:
         new_matrices = torch.nn.functional.dropout(
             activations.unflatten(-1, (self.config.n_state_heads, self.state_head_order, self.embedding_chunk_size)) @ self.state_matrices_up,
             p = self.config.dropout_rate,
@@ -103,7 +106,7 @@ class mru_lm_block(torch.nn.Module):
 
 
     def forward(self, activations: torch.Tensor, last_state: Optional[torch.Tensor]) -> torch.Tensor:
-        mru_out, new_state = self.parallel_mru(self.first_ln(activations), last_state)
+        mru_out, new_state = self.mru(self.first_ln(activations), last_state)
 
         activations = activations + mru_out
         activations = activations + self.mlp(self.second_ln(activations))
