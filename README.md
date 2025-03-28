@@ -8,7 +8,7 @@ Use the command `python main.py --device=cuda --dataset=tiny_stories.py`. Set `-
 
 ### Introduction
 
-This is a project which replaces attention in a traditional GPT2-based transformer with my idea, the linear-complexity matrix recurrent unit (MRU). This repo is forked from my repo transformer-train-script.
+This is a project which replaces attention in a traditional GPT2-based transformer with my idea, the sub-quadratic-complexity matrix recurrent unit (MRU). This repo is forked from my repo transformer-train-script.
 Based on testing on the shakespeare_char toy dataset, the MRU seems to work well as a replacement for attention.
 ![MRU-LM vs Transformer](mru-lm_vs_transformer.png)
 
@@ -16,7 +16,9 @@ The above loss plot is the first train attempt, using the independent-heads bran
 
 ### Moving Forward
 
-I have limited compute and experience with datascience, so I haven't been able to test the LM on much other than the toy dataset. Firstly, I would like to test this on larger and more informative datasets. If anyone wants to help me with this, reach out to me at <mikayahlevi@gmail.com> or any other means. Secondly, the MRU is still relatively slow compared to the theoretical amount of operations it should take, so I would like to investigate writing a CUDA kernel or just trying to optimize the PyTorch code.
+I have limited compute and experience with datascience, so I haven't been able to test the LM on much other than the toy dataset. Firstly, I would like to test this on larger and more informative datasets. If anyone wants to help me with this, reach out to me at <mikayahlevi@gmail.com> or any other means.
+
+I've also begun writing [a CUDA PyTorch extension](https://github.com/mikayahlevi/cuda_mru) which can significantly speed up the operation.
 
 ### Explanation
 
@@ -24,9 +26,9 @@ I have limited compute and experience with datascience, so I haven't been able t
 
 The idea of a matrix recurrent unit is dictated by the update rule $H_t = H_{t-1} X_{t-1}$,  and $H_1 = X_1$ where $X$ and $H$ are $\mathbb{R}^{s \times d_o \times d_o}$ sequences of square matrices ($d_o$ will be clarified later). My motivation for coming up with this idea are based on the following reasons:
 
-- Matrix multiplication is associative but not commutative. The associativity means I can compute the cumulative matrix product using an (inclusive) parallel scan. The lack of commutativity means that the order of tokens is automatically incorporated into the MRU.
+- Matrix multiplication is associative but not commutative. The associativity means I can compute the cumulative matrix product using an (inclusive) parallel scan. The lack of commutativity means that the order of the inputs is automatically incorporated into the output by the MRU.
 - When you try to do this scan on an traditional RNN, the number of operations scales cubically with the amount of elements in the output state, meaning that limited information is retained compared to the amount of computation. On the other hand, if the states are matrices, the number of operations as a function of elements in the output state is $((d_o)^2)^\frac{3}{2}$, where $(d_o)^2$ is the number of elements in the square $d_o \times d_o$ output matrix state. Some more info here: <https://arxiv.org/abs/1709.04057>.
-- When processing the tokens sequentially or in parallel with the Brent-Kung parallel scan, the network scales linearly with time in contrast to attention which scales quadratically with time.
+- When processing the tokens sequentially, the network scales linearly with time in contrast to attention which scales quadratically with sequence length.
 
 ### Dimensionality and Construction
 
@@ -57,12 +59,18 @@ $$
 log_2(s) s h  (d_o)^3 = log_2(s) s h (\frac{d_s}{h})^\frac{3}{2}
 $$
 
-The parallel scans take more computation, but they have the advantage of using parallel hardware more effeciently. While an RNN would take $s$ steps on a GPU with infinite cores, the Hillis-Steele scan only takes $log_2(s)$, and the Brent-Kung scan takes $2 log_3(s)$.
-The scans are just the Brent-Kung and Hillis-Steele prefix sum algorithms but repurposed for matrix multiplication.
+- Using [the CUDA kernel](https://github.com/mikayahlevi/cuda_mru) (Sklansky)
+
+$$
+log_2(s) \frac{s}{2} h  (d_o)^3 = log_2(s) s h (\frac{d_s}{h})^\frac{3}{2}
+$$
+
+The parallel scans take more computation, but they have the advantage of using parallel hardware more effeciently. While processing recurrently would take $s$ steps on a GPU with infinite cores, the Hillis-Steele and Sklansky scan only takes $log_2(s)$, and the Brent-Kung scan takes $2 log_2(s)$.
+The Brent-Kung and Hillis-Steele scans are typically prefix sums, but I repurposed them for cumulative matrix multiplication.
 
 #### Restructuring the Vectors into Matrices and Back
 
-The MRU should take in a sequence of vectors and return a sequence of vector, like any other traditional operation in a neural network. For now I'll be ignoring the batch and sequence dimensions and only focus on the last dimension. $X$ and $H$ are matrices, so the network somehow has to convert vectors to matrices and back. In this case we will call the $x$ is the input (not the same as $X$) and $y$ is the output. The way $X$ is generated follows this formula:
+The MRU should take in a sequence of vectors and return a sequence of vectors, like any other traditional operation in a neural network. For now I'll be ignoring the batch and sequence dimensions and only focus on the last dimension. $X$ and $H$ are matrices, so the network somehow has to convert vectors to matrices and back. In this case we will call the $x$ is the input (not the same as $X$) and $y$ is the output. The way $X$ is generated follows this formula:
 
 $$
 X = \text{reshape}(x, h, d_o, d_c) W_{in}
@@ -81,15 +89,17 @@ Therefore, $W_{out}$ is a $h \times d_h \times d_c$ tensor, which also has the e
 
 ### Comparison with Similar Projects
 
-After finishing this project, I've been informed that this project actually has quite a bit of overlap with DeltaNet (<https://arxiv.org/abs/2102.11174>) and RWKV7 (<https://x.com/BlinkDL_AI/status/1833863117480280528>). Note that I may misunderstand these other projects. The recurrence relation of RWKV7 and DeltaNet is almost a subset of the MRU with additional structure on $X$, except they also have a term that is added to (the equivalent of) $H_t$ at each timestep. Despite the overlap, the MRU still has a two key differences.
+#### Differences with State-Space Models
 
-- RWKV7 and DeltaNet don't derive an effecient scan like I do in the next section. The paper Parallelizing Linear Transformers with the Delta Rule
-over Sequence Length (<https://arxiv.org/pdf/2406.06484>) does derive a less parallel (if I'm not mistaken) chunkwise form, though.
-- The MRU deconstructs the states to extract one output feature per state matrix element by reshaping it. DeltaNet and RWKV, on the other hand, only extract the square root of the number of elements per state matrix by using the matrices as weight for a linear, leading to orders of magitude more computation for an equivalent number of features.
+Recent developments in state space models have branched out from the Mamba 1 and 2, which use the introduction of selectivity and a reformulation of state space systems to bring them closer to linear attention. Models like Mamba 1/2, RWKV7, and DeltaNet, etc use a significantly reduced state matrix (simply a scalar in the case of Mamba 2) to allow them to avoid the more computationally expensive linear transformations. These changes allow the systems to expressed as computationally effecient weighted sums of vectors (similar to attention). The MRU takes the opposite approach and drops the added terms from state space systems and instead focuses on making the state matrix selective/data-dependent and effecient, so that each update transforms the last state.
+
+#### Theoretical Disadvantage when Compared to Attention and Mamba-Like Models
+
+If we assume that a model can only store an amount of information proportional to the accesible number of scalars, the MRU is shown to have a disadvantage. With attention, it's fair to assume that every value is accessible at every future timestep, meaning that attention can store information proportional to the value size times the sequence length. Mamba-like models also store a large amount information, with a state size by hidden size matrix accessed by a query-like vector at every timestep. Unfortunately, the MRU only has a single square matrix with the number of elements equal to the state size, potentially meaning that the information has to be compressed into a much smaller representation.
 
 ### Efficient Scan
 
-For the MRU, I've derived an effecient algorithm using a parallel scan to compute it. Sorry for my most likely incorrect mathematical notation. I am not well versed in the math fields that this computation involves. Note that the $^T$ symbol refers to transposing the last two dimensions and the $I$ symbol refers to the identity matrix.
+For the MRU, I've derived an effecient algorithm using a parallel scan to compute it. Sorry for my (most likely) incorrect mathematical notation. I am not well versed in all of the math fields that this computation involves. Note that the $^T$ symbol refers to transposing the last two dimensions and the $I$ symbol refers to the identity matrix.
 The closed form ($1 \leq j \leq s$) for the MRU is
 
 $$
