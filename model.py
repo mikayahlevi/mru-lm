@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from parallel_mru_op import parallel_mru_op
 
 @dataclass
-class mrun_config:
+class mru_lm_config:
     vocab_size: int
     
     embedding_size: int
@@ -22,9 +22,9 @@ class mrun_config:
 
 
 
-class mrun_block(torch.nn.Module):
-    def __init__(self, config: mrun_config):
-        super(mrun_block, self).__init__()
+class mru_lm_block(torch.nn.Module):
+    def __init__(self, config: mru_lm_config):
+        super(mru_lm_block, self).__init__()
 
         self.config = config
 
@@ -117,13 +117,13 @@ class mrun_block(torch.nn.Module):
 
 
     
-class mrun_network(torch.nn.Module):
-    def __init__(self, config: mrun_config):
-        super(mrun_network, self).__init__()
+class mru_lm_network(torch.nn.Module):
+    def __init__(self, config: mru_lm_config):
+        super(mru_lm_network, self).__init__()
 
         self.config = config
 
-        self.blocks = torch.nn.ModuleList([mrun_block(config) for _ in range(config.n_blocks)])
+        self.blocks = torch.nn.ModuleList([mru_lm_block(config) for _ in range(config.n_blocks)])
         
         
         self.wte = torch.nn.Embedding(config.vocab_size, config.embedding_size)

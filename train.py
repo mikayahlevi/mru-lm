@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from matplotlib import pyplot
 from typing import Optional
 
-from model import mrun_config
+from model import mru_lm_config
 
 
 @dataclass
