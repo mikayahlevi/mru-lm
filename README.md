@@ -44,19 +44,19 @@ The number of operations for the MRU itself in is:
 - Using recurrence
 
 $$
-s h (d_o)^\frac{3}{2} = s d_o d_s
+(s) (h) (d_o)^3 = (s) (d_o) (d_s)^\frac{3}{2}
 $$
 
 - Using the Brent-Kung scan
 
 $$
-2 s h  (d_o)^3 = 2 s h (\frac{d_s}{h})^\frac{3}{2}
+2 (s) (h)  (d_o)^3 = 2 (s) (h) (\frac{d_s}{h})^\frac{3}{2}
 $$
 
 - Using the Hillis-Steel scan
 
 $$
-log_2(s) s h  (d_o)^3 = log_2(s) s h (\frac{d_s}{h})^\frac{3}{2}
+(log_2 s) (s) (h)  (d_o)^3 = (log_2 s) (s) (h) (\frac{d_s}{h})^\frac{3}{2}
 $$
 
 - Using [the CUDA kernel](https://github.com/mikayahlevi/cuda_mru) (Sklansky)
