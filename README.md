@@ -62,7 +62,7 @@ $$
 - Using [the CUDA kernel](https://github.com/mikayahlevi/cuda_mru) (Sklansky)
 
 $$
-log_2(s) \frac{s}{2} h  (d_o)^3 = log_2(s) s h (\frac{d_s}{h})^\frac{3}{2}
+(log_2 s) (\frac{s}{2}) (h)  (d_o)^3 = (log_2 s) (\frac{s}{2}) (h) (\frac{d_s}{h})^\frac{3}{2}
 $$
 
 The parallel scans take more computation, but they have the advantage of using parallel hardware more effeciently. While processing recurrently would take $s$ steps on a GPU with infinite cores, the Hillis-Steele and Sklansky scan only takes $log_2(s)$, and the Brent-Kung scan takes $2 log_2(s)$.
