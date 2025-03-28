@@ -148,7 +148,7 @@ def train(settings, hyperparameters, model, dataset, device):
         
         inputs, labels = ids[..., :-1], ids[..., 1:]
 
-        logits, _ = model(inputs, model.get_initial_state())
+        logits, _ = model(inputs)
 
         # flatten batch and sequence dimensions into one dimension for computing the loss
         loss = criterion(logits.flatten(-3, -2), labels.flatten(-2, -1))

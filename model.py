@@ -135,12 +135,15 @@ class mru_lm_network(torch.nn.Module):
         self.lm_head_weights = self.wte.weight
 
     # index should start at 0
-    def forward(self, encodings: torch.Tensor, last_state: list[Optional[torch.Tensor]]) -> tuple[torch.Tensor, list[torch.Tensor]]:
+    def forward(self, encodings: torch.Tensor, last_state: Optional[list[torch.Tensor]]) -> tuple[torch.Tensor, list[torch.Tensor]]:
         embeddings = torch.nn.functional.dropout( 
             self.wte(encodings),
             p = self.config.dropout_rate,
             training = self.training
         )
+
+        if last_state is None:
+            last_state = self.get_initial_state()
 
         for i, block in enumerate(self.blocks):
             embeddings, last_state[i] = block.forward(embeddings, last_state[i])
