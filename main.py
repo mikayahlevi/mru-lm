@@ -19,7 +19,7 @@ from train import train, train_config, hyperparameter_config
 parser = argparse.ArgumentParser()
 
 parser.add_argument('--device', type = str, default = 'cuda')
-parser.add_argument('--dataset', type = str, default = 'tiny_stories')
+parser.add_argument('--dataset', type = str)
 parser.add_argument('--compile', type = bool, default = False)
 parser.add_argument('--config_path', type = str, default = 'config')
 parser.add_argument('--train_log_path', type = str, default ='trains')
@@ -55,23 +55,23 @@ if __name__ == '__main__':
 
 
     # create the path to log the info and dump the configs as jsons
-    train_run_index = 0
+    train_folder_index = 0
     while True:
-        current_path = os.path.join(args.train_log_path, 'train-' + str(train_run_index))
+        current_path = os.path.join(args.train_log_path, 'train-' + str(train_folder_index))
         if os.path.exists(current_path):
-            train_run_index += 1
+            train_folder_index += 1
         else:
             os.makedirs(current_path)
-            traincfg.train_run_path = current_path
+            traincfg.train_log_path = current_path
 
-            os.makedirs(traincfg.train_run_path  + '/models')
-            os.makedirs(traincfg.train_run_path  + '/stats')
+            os.makedirs(traincfg.train_log_path  + '/models')
+            os.makedirs(traincfg.train_log_path  + '/stats')
 
-            with open(traincfg.train_run_path  + '/traincfg.json', 'w') as f:
+            with open(traincfg.train_log_path  + '/traincfg.json', 'w') as f:
                 f.write(json.dumps(dataclasses.asdict(traincfg)))
-            with open(traincfg.train_run_path  + '/hparams.json', 'w') as f:
+            with open(traincfg.train_log_path  + '/hparams.json', 'w') as f:
                 f.write(json.dumps(dataclasses.asdict(hparams)))
-            with open(traincfg.train_run_path  + '/modelcfg.json', 'w') as f:
+            with open(traincfg.train_log_path  + '/modelcfg.json', 'w') as f:
                 f.write(json.dumps(dataclasses.asdict(modelcfg)))
 
             break
@@ -95,6 +95,5 @@ if __name__ == '__main__':
         hparams,
         model,
         dataset,
-        tokenizer,
         args.device
     )

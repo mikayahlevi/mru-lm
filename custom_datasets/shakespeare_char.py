@@ -36,47 +36,32 @@ def get_dataset_and_tokenizer(sequence_length: int):
 
     dataset, vocab = None, None
 
-    if os.path.exists('data/shakespeare_char/dataset') and os.path.exists('data/shakespeare_char/tokenizer'):
-        dataset = datasets.load_from_disk('data/shakespeare_char/dataset')
-        tokenizer = pickle.load(open('data/shakespeare_char/tokenizer', 'rb'))
-    else:
-        text = requests.get('https://raw.githubusercontent.com/karpathy/char-rnn/master/data/tinyshakespeare/input.txt').text
-        
-        vocab = sorted(set(text))
+    text = requests.get('https://raw.githubusercontent.com/karpathy/char-rnn/master/data/tinyshakespeare/input.txt').text
+    
+    vocab = sorted(set(text))
 
-        tokenizer = character_tokenizer(vocab)
+    tokenizer = character_tokenizer(vocab)
 
-        ids = tokenizer.encode(text)
+    ids = tokenizer.encode(text)
 
-        train_to_val_ratio = 0.9
-        train_len = int(len(ids) * train_to_val_ratio)
-
-        train_ids = ids[:train_len]
-        val_ids = ids[train_len:]
+    train_to_val_ratio = 0.9
+    train_len = int(len(ids) * train_to_val_ratio)
 
 
-        dataset = datasets.DatasetDict({
-            'train': datasets.Dataset.from_dict({
-                'inputs': train_ids[:-1],
-                'labels': train_ids[1:]
-            }),
-            'validation': datasets.Dataset.from_dict({
-                'inputs': val_ids[:-1],
-                'labels': val_ids[1:]
-            })
+    dataset = datasets.DatasetDict({
+        'train': datasets.Dataset.from_dict({
+            'ids': ids[:train_len]
+        }),
+        'validation': datasets.Dataset.from_dict({
+            'ids': ids[train_len:]
         })
+    })
 
-        # batch the dataset
-        for split in dataset.keys():
-            dataset[split] = dataset[split].batch(sequence_length, drop_last_batch = True)
+    # batch the dataset
+    for split in dataset.keys():
+        dataset[split] = dataset[split].batch(sequence_length + 1, drop_last_batch = True)
 
-        # save formatted dataset to the disk
-        dataset.save_to_disk('data/shakespeare_char/dataset')
-
-        # save tokenizer to the disk
-        pickle.dump(tokenizer, open('data/shakespeare_char/tokenizer', 'wb'))
-
-    return dataset.with_format(type = 'torch', columns = ['inputs', 'labels']), tokenizer
+    return dataset.with_format(type = 'torch', columns = ['ids']), tokenizer
         
 
 
