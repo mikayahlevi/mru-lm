@@ -191,7 +191,7 @@ def train(settings, hyperparameters, model, dataset, device):
             with torch.inference_mode():
                 for val_item in iter(val_dataloader):
                     val_ids = val_item['ids'].to(device)
-                    val_inputs, val_labels = val_ids[:-1], val_ids[1:]
+                    val_inputs, val_labels = val_ids[..., :-1], val_ids[..., 1:]
 
                     val_logits = model(val_inputs)
 
