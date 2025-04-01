@@ -16,7 +16,7 @@ The above loss plot is the first train attempt, using the independent-heads bran
 
 ### Moving Forward
 
-I have limited compute and experience with datascience, so I haven't been able to test the LM on much other than the toy dataset. Firstly, I would like to test this on larger and more informative datasets. If anyone wants to help me with this, reach out to me at <mikayahlevi@gmail.com> or any other means.
+I have limited compute and experience with training large models, so I haven't been able to test the LM on much other than the toy dataset. Firstly, I would like to test this on larger and more informative datasets. If anyone wants to help me with this or is interested in contacting me, reach out to me at <mikayahlevi@gmail.com>.
 
 I've also began writing [a CUDA PyTorch extension](https://github.com/mikayahlevi/cuda_mru) which can significantly speed up the operation.
 
