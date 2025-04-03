@@ -79,7 +79,7 @@ class mru_lm_block(torch.nn.Module):
             
     def mru(self, activations: torch.Tensor, last_state: Optional[torch.Tensor]) -> torch.Tensor:
         new_matrices = torch.nn.functional.dropout(
-            self.state_matrices_up(activations).unflatten(-1, (self.config.n_state_heads, self.state_head_order, self.embedding_chunk_size)),
+            self.state_matrices_up(activations).unflatten(-1, (self.config.n_state_heads, self.state_head_order, self.state_head_order)),
             p = self.config.dropout_rate,
             training = self.training
         ) * self.state_matrices_update_scale + torch.eye(self.state_head_order, device = activations.device)
