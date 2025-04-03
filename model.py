@@ -43,22 +43,18 @@ class mru_lm_block(torch.nn.Module):
             raise ValueError(f"embedding size must be divisible by the state head order ({self.state_head_order})")
         self.embedding_chunk_size = config.embedding_size // (self.state_head_order * config.n_state_heads)
 
-        self.state_matrices_up = torch.nn.Parameter(
-            torch.zeros(
-                config.n_state_heads, self.embedding_chunk_size, self.state_head_order
-            ),
-            requires_grad = True
-        )
+        self.state_matrices_up = torch.nn.Linear(config.embedding_size, config.state_size, bias = False)
+        torch.nn.init.zeros_(self.state_matrices_up.weight)
 
-        # this scaling factor and the init for state_matrices_down is based on the μP paper
+        # this scaling factor and the init for state_matrices_down is based on some insights from the μP paper
         # https://arxiv.org/abs/2412.08905
         # https://github.com/microsoft/mup
         # the scaling should make maximal update for state_matrices_up and state_matrices_down the same as the rest of the network.
-        self.state_matrices_update_scale = 0.08 * (1 / self.state_head_order) * (config.embedding_size / self.embedding_chunk_size)
+        self.state_matrices_update_scale = 0.08 * (1 / self.state_head_order)
         self.state_matrices_down = torch.nn.Parameter(
             torch.normal(
                 mean = 0,
-                std = 0.02 * math.sqrt(config.state_size) / (self.config.embedding_size / self.state_head_order),
+                std = 0.02 * math.sqrt(self.config.embedding_size),
                 size = (config.n_state_heads, self.state_head_order, self.embedding_chunk_size)
             ),
             requires_grad = True
@@ -83,7 +79,7 @@ class mru_lm_block(torch.nn.Module):
             
     def mru(self, activations: torch.Tensor, last_state: Optional[torch.Tensor]) -> torch.Tensor:
         new_matrices = torch.nn.functional.dropout(
-            activations.unflatten(-1, (self.config.n_state_heads, self.state_head_order, self.embedding_chunk_size)) @ self.state_matrices_up,
+            self.state_matrices_up(activations).unflatten(-1, (self.config.n_state_heads, self.state_head_order, self.embedding_chunk_size)),
             p = self.config.dropout_rate,
             training = self.training
         ) * self.state_matrices_update_scale + torch.eye(self.state_head_order, device = activations.device)
@@ -94,9 +90,7 @@ class mru_lm_block(torch.nn.Module):
         
         states = parallel_mru_op_output if last_state is None else parallel_mru_op_output[..., 1:, :, :, :]
 
-        # multiplying by (self.config.embedding_size / self.state_head_order) is also part lr scaling
-        # this allows the gradients to be larger because less inputs are being summed.
-        output = ((states @ self.state_matrices_down) * (self.config.embedding_size / self.state_head_order)).flatten(-3, -1)
+        output = (states @ self.state_matrices_down).flatten(-3, -1)
 
         return torch.nn.functional.dropout(
             self.mru_out(output),
