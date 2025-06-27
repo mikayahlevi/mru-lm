@@ -229,7 +229,7 @@ def train(settings, hyperparameters, model, dataset, device):
                         val_ids = val_item['ids'].to(device)
                         val_inputs, val_labels = val_ids[..., :-1], val_ids[..., 1:]
 
-                    val_logits, _ = model(val_inputs)
+                        val_logits, _ = model(val_inputs)
 
                         val_loss = criterion(val_logits.flatten(-3, -2), val_labels.flatten(-2, -1))
 
