@@ -21,8 +21,9 @@ parser = argparse.ArgumentParser()
 parser.add_argument('--device', type = str, default = 'cuda')
 parser.add_argument('--dataset', type = str)
 parser.add_argument('--compile', type = bool, default = False)
-parser.add_argument('--config_path', type = str, default = 'config')
-parser.add_argument('--train_log_path', type = str, default ='trains')
+parser.add_argument('--config_folder_path', type = str, default = 'config')
+parser.add_argument('--train_folder_dir', type = str, default = 'trains')
+parser.add_argument('--train_folder_name', type = Optional[str], default = None)
 
 
 args = parser.parse_args()
@@ -39,43 +40,58 @@ if __name__ == '__main__':
 
     # load the configs from the json files
     traincfg, modelcfg, hparams = None, None, None
-    with open(os.path.join(args.config_path, 'traincfg.json'), 'r') as f:
+    with open(os.path.join(args.config_folder_path, 'traincfg.json'), 'r') as f:
         traincfg = train_config(**json.load(f))
-    with open(os.path.join(args.config_path, 'hparams.json'), 'r') as f:
+    with open(os.path.join(args.config_folder_path, 'hparams.json'), 'r') as f:
         hparams = hyperparameter_config(**json.load(f))
-
 
 
     dataset, tokenizer = dataset_module.get_dataset_and_tokenizer(traincfg.sequence_length)
 
-
-    with open(os.path.join(args.config_path, 'modelcfg.json'), 'r') as f:
+    with open(os.path.join(args.config_folder_path, 'modelcfg.json'), 'r') as f:
         # set the model's vocab size to the dataset's vocab size
         modelcfg = mru_lm_config(**json.load(f), vocab_size = tokenizer.get_vocab_size())
 
 
     # create the path to log the info and dump the configs as jsons
-    train_folder_index = 0
-    while True:
-        current_path = os.path.join(args.train_log_path, 'train-' + str(train_folder_index))
-        if os.path.exists(current_path):
-            train_folder_index += 1
-        else:
-            os.makedirs(current_path)
-            traincfg.train_log_path = current_path
+    train_folder_path = None
 
-            os.makedirs(traincfg.train_log_path  + '/models')
-            os.makedirs(traincfg.train_log_path  + '/stats')
+    if args.train_folder_name is None:
+        train_folder_auto_name_index = 0
+        
+        for train_folder_auto_name_index in range(1000):
+            train_folder_auto_name = 'train-' + str(train_folder_auto_name_index)
+            
+            current_auto_path = os.path.join(args.train_folder_dir, train_folder_auto_name)
+            
+            if os.path.exists(current_auto_path):
+                train_folder_auto_name_index += 1
+            else:
+                train_folder_path = current_auto_path
+                break
+        
+        if train_folder_path is None:
+            raise ValueError(f'Could not find a free train folder name in {args.train_folder_dir} after a maximum of 1000 tries.')
 
-            with open(traincfg.train_log_path  + '/traincfg.json', 'w') as f:
-                f.write(json.dumps(dataclasses.asdict(traincfg)))
-            with open(traincfg.train_log_path  + '/hparams.json', 'w') as f:
-                f.write(json.dumps(dataclasses.asdict(hparams)))
-            with open(traincfg.train_log_path  + '/modelcfg.json', 'w') as f:
-                f.write(json.dumps(dataclasses.asdict(modelcfg)))
+    else:
+        train_folder_path = os.path.join(args.train_folder_dir, args.train_folder_name)
+        if os.path.exists(train_folder_path):
+            raise ValueError(f'Specified train folder {train_folder_path} already exists.')
 
-            break
+    os.makedirs(train_folder_path)
 
+    os.makedirs(os.path.join(train_folder_path, 'models'))
+    os.makedirs(os.path.join(train_folder_path, 'stats'))
+
+    with open(os.path.join(train_folder_path, 'traincfg.json'), 'w') as f:
+        f.write(json.dumps(dataclasses.asdict(traincfg)))
+    with open(os.path.join(train_folder_path, 'hparams.json'), 'w') as f:
+        f.write(json.dumps(dataclasses.asdict(hparams)))
+    with open(os.path.join(train_folder_path, 'modelcfg.json'), 'w') as f:
+        f.write(json.dumps(dataclasses.asdict(modelcfg)))
+    
+    
+    traincfg.train_folder_path = train_folder_path
 
 
 

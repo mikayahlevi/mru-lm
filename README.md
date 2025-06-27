@@ -2,7 +2,7 @@
 
 ## How to Run
 
-Use the command `python main.py --device=cuda --dataset=tiny_stories.py`. Set `--dataset=shakespeare_char` for the character-level Shakespeare dataset.
+Use the command `python main.py --device=cuda --dataset=shakespeare_char` to train on a character-level shakespeare dataset.
 
 ## What is this?
 

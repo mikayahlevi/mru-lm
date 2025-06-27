@@ -61,7 +61,7 @@ class mru_lm_block(torch.nn.Module):
         )
 
         self.mru_out = torch.nn.Linear(config.embedding_size, config.embedding_size, bias = False)
-        torch.nn.init.normal_(self.mru_out.weight, mean = 0, std = 0.02 / math.sqrt(config.n_blocks))
+        torch.nn.init.normal_(self.mru_out.weight, mean = 0, std = 0.02 / math.sqrt(2 * config.n_blocks))
 
 
         self.first_ln = torch.nn.LayerNorm(config.embedding_size, bias = False)
@@ -75,7 +75,7 @@ class mru_lm_block(torch.nn.Module):
         )
 
         torch.nn.init.normal_(self.mlp[0].weight, mean = 0, std = 0.02)
-        torch.nn.init.normal_(self.mlp[2].weight, mean = 0, std = 0.02 / math.sqrt(config.n_blocks))
+        torch.nn.init.normal_(self.mlp[2].weight, mean = 0, std = 0.02 / math.sqrt(2 * config.n_blocks))
             
     def mru(self, activations: torch.Tensor, last_state: Optional[torch.Tensor]) -> torch.Tensor:
         new_matrices = torch.nn.functional.dropout(

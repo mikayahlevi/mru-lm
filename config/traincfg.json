@@ -6,17 +6,22 @@
     "total_steps": 5000,
 
 
-    "update_every": 1,
+    "update_interval": 1,
 
-    "schedule_every": 10,
+    "schedule_interval": 10,
 
-    "log_loss_every": 20,
+    "train_loss_log_interval": 20,
 
-    "eval_every": 200,
-
-
-    "print_progress_every": 40,
+    "val_loss_log_interval": 200,
 
     
-    "save_checkpoint_every": 1000000
+    "log_to_file": true,
+
+    "log_to_wandb": false,
+
+
+    "display_metrics_interval": 40,
+
+    
+    "save_checkpoint_interval": 1000
 }

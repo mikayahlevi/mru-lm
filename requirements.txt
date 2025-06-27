@@ -1,5 +1,9 @@
 torch
-matplotlib
 colorama
 prefixed
 datasets
+
+# optional dependency for torch.compile
+triton
+# optional dependency for wandb logging
+wandb
