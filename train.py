@@ -41,39 +41,30 @@ class hyperparameter_config:
     weight_decay: float
 
 
-def get_params_with_names(named_parameters, names: list[str]):
-    filtered_parameters = []
-    for n, p in named_parameters:
-        for name in names:
-            if name in n:
-                filtered_parameters.append(p)
-                break
-    return filtered_parameters
-
-
-def remove_params_with_names(named_parameters, names: list[str]):
-    filtered_parameters = []
-    for n, p in named_parameters:
-        name_in_n = False
-        for name in names:
-            if name in n:
-                name_in_n = True
-        if name_in_n == False:
-            filtered_parameters.append(p)
-    return filtered_parameters
-
-
 def configure_optimizer(model, hyperparameters):
-    nodecay_param_names = ['ln.weight', 'wte.weight']
+    wte_weight = model.wte.weight
+
+    final_ln_weight = model.final_ln.weight
+
+    first_ln_weights = [block.first_ln.weight for block in model.blocks]
+    second_ln_weights = [block.second_ln.weight for block in model.blocks]
+
+    mlp_up_weights = [block.mlp[0].weight for block in model.blocks]
+    mlp_down_weights = [block.mlp[2].weight for block in model.blocks]
+
+    query_layer_weights = [block.attention.query_layer.weight for block in model.blocks]
+    key_layer_weights = [block.attention.key_layer.weight for block in model.blocks]
+    value_layer_weights = [block.attention.value_layer.weight for block in model.blocks]
+    attention_down_weights = [block.attention.attention_down.weight for block in model.blocks]
 
     optim_groups = [
         {
-            'params': remove_params_with_names(model.named_parameters(), nodecay_param_names),
-            'weight_decay': hyperparameters.weight_decay
+            'params': [wte_weight] + [final_ln_weight] + first_ln_weights + second_ln_weights,
+            'weight_decay': 0.0
         },
         {
-            'params': get_params_with_names(model.named_parameters(), nodecay_param_names),
-            'weight_decay': 0.0
+            'params': mlp_up_weights + mlp_down_weights + query_layer_weights + key_layer_weights + value_layer_weights + attention_down_weights,
+            'weight_decay': hyperparameters.weight_decay
         }
     ]
 
