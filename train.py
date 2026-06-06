@@ -4,11 +4,10 @@ import datasets
 import time
 import colorama
 import os
+import math
 
 
 from dataclasses import dataclass
-import dataclasses
-import contextlib
 from typing import Callable, Any, cast
 
 from pipeline import pipeline_protocol
@@ -41,7 +40,7 @@ class hyperparameter_config:
     weight_decay: float
 
 
-def configure_optimizer(model, hyperparameters):
+def configure_optimizer(model, hyperparameters, sequence_length: int):
     wte_weight = model.wte.weight
 
     final_ln_weight = model.final_ln.weight
@@ -52,10 +51,10 @@ def configure_optimizer(model, hyperparameters):
     mlp_up_weights = [block.mlp[0].weight for block in model.blocks]
     mlp_down_weights = [block.mlp[2].weight for block in model.blocks]
 
-    query_layer_weights = [block.attention.query_layer.weight for block in model.blocks]
-    key_layer_weights = [block.attention.key_layer.weight for block in model.blocks]
-    value_layer_weights = [block.attention.value_layer.weight for block in model.blocks]
-    attention_down_weights = [block.attention.attention_down.weight for block in model.blocks]
+    state_matrices_up_weights = [block.mru.state_matrices_up.weight for block in model.blocks]
+    state_matrices_down_weights = [block.mru.state_matrices_down for block in model.blocks]
+    mru_out_weights = [block.mru.mru_out.weight for block in model.blocks]
+
 
     optim_groups = [
         {
@@ -63,8 +62,15 @@ def configure_optimizer(model, hyperparameters):
             'weight_decay': 0.0
         },
         {
-            'params': mlp_up_weights + mlp_down_weights + query_layer_weights + key_layer_weights + value_layer_weights + attention_down_weights,
+            'params': mlp_up_weights + mlp_down_weights + state_matrices_down_weights + mru_out_weights,
             'weight_decay': hyperparameters.weight_decay
+        },
+        {
+            'params': state_matrices_up_weights,
+            'weight_decay': hyperparameters.weight_decay,
+            # during attention each token affects one other token on average
+            # the MRU on average affects all future tokens therefore recieves much more gradients information, so scale it down
+            'lr': hyperparameters.peak_lr * math.sqrt(2 / sequence_length)
         }
     ]
 
@@ -120,7 +126,7 @@ def train(
     criterion = torch.nn.CrossEntropyLoss(reduction = 'mean', ignore_index = mask_value)
 
 
-    optimizer = configure_optimizer(model, hyperparameters)
+    optimizer = configure_optimizer(model, hyperparameters, settings.sequence_length)
     scheduler = torch.optim.lr_scheduler.ChainedScheduler(
         [
             torch.optim.lr_scheduler.LinearLR(optimizer, start_factor = hyperparameters.start_lr / hyperparameters.peak_lr, end_factor = 1.0, total_iters = hyperparameters.lr_warmup_steps // settings.schedule_interval),
