@@ -2,6 +2,8 @@ torch
 colorama
 prefixed
 datasets
+numpy
+transformers
 
 # optional dependency for torch.compile
 triton

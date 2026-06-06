@@ -1,0 +1,12 @@
+{
+    "sequence_length": 256,
+    "batch_size": 64,
+
+
+    "total_steps": 5000,
+
+
+    "update_interval": 1,
+
+    "schedule_interval": 10
+}

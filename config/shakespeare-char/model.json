@@ -1,13 +1,13 @@
 {
     "embedding_size": 384,
-    
+
     "dropout_rate": 0.2,
 
-    
+
     "n_state_heads": 6,
-    
+
     "state_size": 384,
 
-    
+
     "n_blocks": 6
 }
