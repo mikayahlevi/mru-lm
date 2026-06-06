@@ -4,7 +4,7 @@ import importlib
 import importlib.util
 import colorama
 
-from model import transformer_cache, transformer_network
+from model import mru_lm_network
 from pipeline import pipeline_protocol, get_pipeline
 from typing import Any
 
@@ -12,9 +12,9 @@ from typing import Any
 def sample(model, pipeline: pipeline_protocol[Any, Any], tokenizer, prefix: str, temperature: float, max_length: int, device: torch.device) -> str:
     encoded_prefix = pipeline.encode_text(tokenizer, prefix)
 
-    cache = transformer_cache(model.config).to(device)
+    last_state = model.get_initial_state(batch_size = 1, device = device)
 
-    logits = model.forward(encoded_prefix.to(device), cache).squeeze(-3)
+    logits = model.forward(encoded_prefix.to(device), last_state).squeeze(-3)
 
     sequence = torch.empty((max_length,), dtype = torch.long, device = device)
 
@@ -26,7 +26,7 @@ def sample(model, pipeline: pipeline_protocol[Any, Any], tokenizer, prefix: str,
     generated = 1
 
     for _ in range(1, max_length):
-        logits = model.forward(last_encoding, cache).squeeze(-3)
+        logits = model.forward(last_encoding, last_state).squeeze(-3)
 
         outputs = torch.softmax(logits[-1] / temperature, dim=0)
         last_encoding = torch.multinomial(outputs, 1)
