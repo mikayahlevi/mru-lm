@@ -43,12 +43,15 @@ class mru(torch.nn.Module):
             raise ValueError(f"embedding size must be divisible by the state head order ({self.state_head_order})")
         self.embedding_chunk_size = config.embedding_size // (self.state_head_order * config.n_state_heads)
 
+
+        self.state_matrices_base = torch.nn.Parameter(
+            torch.eye(self.state_head_order).unsqueeze(0).repeat(config.n_state_heads, 1, 1),
+            requires_grad = True
+        )
+
+
         self.state_matrices_up = torch.nn.Linear(config.embedding_size, config.state_size, bias = False)
         torch.nn.init.zeros_(self.state_matrices_up.weight)
-
-        # scaling factor based on μP
-        self.state_matrices_update_scale = (1 / self.state_head_order)
-
 
         self.state_matrices_down = torch.nn.Parameter(
             torch.normal(
@@ -65,12 +68,12 @@ class mru(torch.nn.Module):
         torch.nn.init.normal_(self.mru_out.weight, mean = 0, std = 0.02 / math.sqrt(2 * config.n_blocks))
 
     def forward(self, activations: torch.Tensor, last_state: Optional[torch.Tensor]) -> tuple[torch.Tensor, torch.Tensor]:
-        # bias states by the identity so the update rule upon initialization is simple
-        input_states = torch.nn.functional.dropout(
+        # bias states by the state_matrices_base, which starts as the identity so the update rule upon initialization is simple
+        input_states = self.state_matrices_base + torch.nn.functional.dropout(
             self.state_matrices_up(activations).unflatten(-1, (self.config.n_state_heads, self.state_head_order, self.state_head_order)),
             p = self.config.dropout_rate,
             training = self.training
-        ) * self.state_matrices_update_scale + torch.eye(self.state_head_order, device = activations.device)
+        )
 
         full_input_states = input_states if last_state is None else torch.cat((last_state.unsqueeze(dim = -4), input_states), dim = -4)
 

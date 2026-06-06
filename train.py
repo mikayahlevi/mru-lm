@@ -51,10 +51,21 @@ def configure_optimizer(model, hyperparameters, sequence_length: int):
     mlp_up_weights = [block.mlp[0].weight for block in model.blocks]
     mlp_down_weights = [block.mlp[2].weight for block in model.blocks]
 
+    state_matrices_base_weights = [block.mru.state_matrices_base for block in model.blocks]
     state_matrices_up_weights = [block.mru.state_matrices_up.weight for block in model.blocks]
     state_matrices_down_weights = [block.mru.state_matrices_down for block in model.blocks]
     mru_out_weights = [block.mru.mru_out.weight for block in model.blocks]
 
+
+    state_head_order = math.isqrt(model.config.state_size // model.config.n_state_heads)
+
+    # during attention each token affects approximately one other token
+    # the MRU on average affects all future tokens therefore recieves much more gradients information
+    # therefore scale the down update's variance by sequence_length / 2; the average number of future tokens
+
+    # furthermore, the state matrices have fan_in of state_head_order
+    # based on μP, we should scale the lr by 1 / state_head_order
+    state_matrices_update_scale = (1 / state_head_order) * math.sqrt(2 / sequence_length)
 
     optim_groups = [
         {
@@ -68,9 +79,12 @@ def configure_optimizer(model, hyperparameters, sequence_length: int):
         {
             'params': state_matrices_up_weights,
             'weight_decay': hyperparameters.weight_decay,
-            # during attention each token affects one other token on average
-            # the MRU on average affects all future tokens therefore recieves much more gradients information, so scale it down
-            'lr': hyperparameters.peak_lr * math.sqrt(2 / sequence_length)
+            'lr': hyperparameters.peak_lr * state_matrices_update_scale
+        },
+        {
+            'params': state_matrices_base_weights,
+            'weight_decay': 0.0,
+            'lr': hyperparameters.peak_lr * state_matrices_update_scale
         }
     ]
 
