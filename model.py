@@ -91,7 +91,17 @@ class mru(torch.nn.Module):
 
         full_input_states = input_states if last_state is None else torch.cat((last_state.unsqueeze(dim = -4), input_states), dim = -4)
 
-        full_output_states = parallel_mru_op(full_input_states.transpose(-3, -4)).transpose(-3, -4)
+        # ensure that full_input_states are float32 or float64, then cast back to the original dtype
+        with torch.amp.autocast(device_type = full_input_states.device.type, enabled = False):
+            original_dtype = full_input_states.dtype
+
+            if original_dtype not in (torch.float32, torch.float64):
+                full_input_states = full_input_states.float()
+
+            full_output_states = parallel_mru_op(full_input_states.transpose(-3, -4)).transpose(-3, -4)
+
+        full_output_states = full_output_states.to(original_dtype)
+
 
         output_states = full_output_states if last_state is None else full_output_states[..., 1:, :, :, :]
 
