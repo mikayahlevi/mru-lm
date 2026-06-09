@@ -4,7 +4,7 @@
     "dropout_rate": 0.0,
 
 
-    "n_state_heads": 12,
+    "n_state_heads": 3,
 
     "state_size": 768,
 
