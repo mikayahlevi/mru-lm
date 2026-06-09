@@ -244,13 +244,15 @@ def train(
 
         scaler.scale(loss / settings.update_interval).backward()
 
-        # note that we use step + 1 since we are measuring the completed steps and we have already executed a single step
 
-        if (step + 1) % len(train_dataloader) == 0:
+
+        completed_steps = step + 1
+
+        if completed_steps % len(train_dataloader) == 0:
             # reset the dataloader iterator at the end of each epoch
             train_dataloader_iter = iter(train_dataloader)
 
-        if (step + 1) % settings.update_interval == 0:
+        if completed_steps % settings.update_interval == 0:
             scaler.unscale_(optimizer)
             for group in optimizer.param_groups:
                 torch.nn.utils.clip_grad_norm_(group['params'], group['max_grad_norm'])
@@ -259,17 +261,17 @@ def train(
             optimizer.zero_grad()
 
 
-        if (step + 1) % settings.schedule_interval == 0:
+        if completed_steps % settings.schedule_interval == 0:
             scheduler.step()
 
-            log_metric(step, 'lr', float(scheduler.get_last_lr()[0]))
+            log_metric(completed_steps, 'lr', float(scheduler.get_last_lr()[0]))
 
 
-        if (step + 1) % loss_log_interval == 0:
-            log_metric(step, 'train_loss', logged_tr_loss_avg.get_average_and_reset())
+        if completed_steps % loss_log_interval == 0:
+            log_metric(completed_steps, 'train_loss', logged_tr_loss_avg.get_average_and_reset())
 
 
-        if (step + 1) % eval_interval == 0:
+        if completed_steps % eval_interval == 0:
             val_loss_acc = accumulating_metric()
 
             model.eval()
@@ -289,15 +291,15 @@ def train(
 
             last_val_loss = val_loss_acc.get_average_and_reset()
 
-            log_metric(step, 'val_loss', last_val_loss)
+            log_metric(completed_steps, 'val_loss', last_val_loss)
 
 
-        if (step + 1) % metric_print_interval == 0:
+        if completed_steps % metric_print_interval == 0:
             print_info = {
                 'time elapsed': time.strftime('%H:%M:%S', time.gmtime(time.time() - start)),
-                'done': '{:.2f}'.format(100 * (step + 1) / settings.total_steps) + '%',
-                'steps': step + 1,
-                'epochs': (step + 1) // len(train_dataloader),
+                'done': '{:.2f}'.format(100 * completed_steps / settings.total_steps) + '%',
+                'steps': completed_steps,
+                'epochs': completed_steps // len(train_dataloader),
             }
 
 
@@ -314,14 +316,14 @@ def train(
 
 
         # this should remain last so that everything is updated before saving the checkpoint
-        if (step + 1) % checkpoint_save_interval == 0:
+        if completed_steps % checkpoint_save_interval == 0:
             torch.save({
-                'step': step + 1,
+                'step': completed_steps,
                 'model_state_dict': model.state_dict(),
                 'optimizer_state_dict': optimizer.state_dict(),
                 'scheduler_state_dict': scheduler.state_dict(),
                 'scaler_state_dict': scaler.state_dict() if scaler.is_enabled() else None,
-            }, os.path.join(checkpoint_save_path, 'checkpoint-' + 'step-' + str(step + 1) + '.pt'))
+            }, os.path.join(checkpoint_save_path, 'checkpoint-' + 'step-' + str(completed_steps) + '.pt'))
 
     print(colorama.Fore.GREEN)
     print('training finished:', settings.total_steps, 'steps completed')

@@ -95,7 +95,7 @@ def add_typed_arguments(parser: argparse.ArgumentParser, arg_str: str, type: Any
 
     if origin == list:
         parser.add_argument(arg_str, type = lambda s: [type.__args__[0](item) for item in s.split(',')])
-    if origin == tuple:
+    elif origin == tuple:
         parser.add_argument(arg_str, type = lambda s: tuple(type.__args__[0](item) for item in s.split(',')))
     else:
         parser.add_argument(arg_str, type = type)
@@ -131,41 +131,6 @@ def manage_dataset_and_tokenizer(args: argparse.Namespace, pipeline: pipeline_pr
         pipeline.save_tokenizer(tokenizer, args.tokenizer_save_path)
 
     return dataset, tokenizer
-
-
-
-def manage_wandb(args: argparse.Namespace, train_cfg: train_config, hprms_cfg: hyperparameter_config, model_cfg: mru_lm_config) -> tuple[contextlib.AbstractContextManager, Callable[[int, str, float], None]]:
-    # initialize wandb logging if enabled
-    # uses optional context managers and metric logging functions
-    wandb_cm = contextlib.nullcontext()
-    wandb_log_metric = lambda step, metric, value: None
-
-    if args.log_to_wandb:
-        import wandb
-        import getpass
-
-        print(colorama.Fore.BLUE)
-        print('logging via wandb enabled')
-        print(colorama.Style.RESET_ALL, end='')
-
-        wandb.login(key = os.environ.get("WANDB_API_KEY") or getpass.getpass("enter wandb key: "))
-
-
-        wandb_cm = wandb.init(
-            project = os.environ.get("WANDB_PROJECT") or input("enter wandb project name: "),
-            name = os.environ.get("WANDB_NAME") or input("enter wandb run name: "),
-            config = {
-                **dataclasses.asdict(train_cfg),
-                **dataclasses.asdict(hprms_cfg),
-                **dataclasses.asdict(model_cfg)
-            }
-        )
-
-        # wandb uses 0-indexing for the step
-        wandb_log_metric = lambda step, metric, value: wandb.log({metric: value}, step = step + 1)
-
-    return wandb_cm, wandb_log_metric
-
 
 
 if __name__ == '__main__':
@@ -250,16 +215,39 @@ if __name__ == '__main__':
     model_cfg = get_config(args, mru_lm_config, 'model', {'vocab_size': pipeline.get_vocab_size(tokenizer)}, train_folder_path = train_folder_path)
 
 
-    wandb_cm, wandb_log_metric = manage_wandb(args, train_cfg, hprms_cfg, model_cfg)
+    # initialize wandb logging if enabled
+    # uses optional context managers and metric logging functions
+    wandb_cm = contextlib.nullcontext()
 
+    if args.log_to_wandb:
+        import wandb
+        import getpass
+
+        print(colorama.Fore.BLUE)
+        print('logging via wandb enabled')
+        print(colorama.Style.RESET_ALL, end='')
+
+        wandb.login(key = os.environ.get("WANDB_API_KEY") or getpass.getpass("enter wandb key: "))
+
+
+        wandb_cm = wandb.init(
+            project = os.environ.get("WANDB_PROJECT") or input("enter wandb project name: "),
+            name = os.environ.get("WANDB_NAME") or input("enter wandb run name: "),
+            config = {
+                **dataclasses.asdict(train_cfg),
+                **dataclasses.asdict(hprms_cfg),
+                **dataclasses.asdict(model_cfg)
+            }
+        )
 
     def log_metric(step, metric, value):
-        wandb_log_metric(step, metric, value)
+        if args.log_to_wandb:
+            wandb.log({metric: value}, step = step)
 
         if args.log_to_file:
             with open(log_path, 'a') as file:
                 # use 1-indexing for the step in the log file
-                file.write(f'step: {step + 1}  {metric}: {value:.6f}\n')
+                file.write(f'step: {step}  {metric}: {value:.6f}\n')
 
 
     checkpoint = None
