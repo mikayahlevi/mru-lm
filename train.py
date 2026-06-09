@@ -51,7 +51,6 @@ def configure_optimizer(model, hyperparameters, sequence_length: int):
     mlp_up_weights = [block.mlp[0].weight for block in model.blocks]
     mlp_down_weights = [block.mlp[2].weight for block in model.blocks]
 
-    state_matrices_base_weights = [block.mru.state_matrices_base for block in model.blocks]
     state_matrices_up_weights = [block.mru.state_matrices_up.weight for block in model.blocks]
     state_matrices_down_weights = [block.mru.state_matrices_down for block in model.blocks]
     mru_out_weights = [block.mru.mru_out.weight for block in model.blocks]
@@ -70,21 +69,19 @@ def configure_optimizer(model, hyperparameters, sequence_length: int):
     optim_groups = [
         {
             'params': [wte_weight] + [final_ln_weight] + first_ln_weights + second_ln_weights,
-            'weight_decay': 0.0
+            'weight_decay': 0.0,
+            'clip_grad_norm_scale': 1.0
         },
         {
             'params': mlp_up_weights + mlp_down_weights + state_matrices_down_weights + mru_out_weights,
-            'weight_decay': hyperparameters.weight_decay
+            'weight_decay': hyperparameters.weight_decay,
+            'clip_grad_norm_scale': 1.0
         },
         {
             'params': state_matrices_up_weights,
             'weight_decay': hyperparameters.weight_decay,
-            'lr': hyperparameters.peak_lr * state_matrices_update_scale
-        },
-        {
-            'params': state_matrices_base_weights,
-            'weight_decay': 0.0,
-            'lr': hyperparameters.peak_lr * state_matrices_update_scale
+            'lr': hyperparameters.peak_lr * state_matrices_update_scale,
+            'clip_grad_norm_scale': math.sqrt(sequence_length / 2)
         }
     ]
 
@@ -169,6 +166,12 @@ def train(
         # flatten batch and sequence dimensions into one dimension for computing the loss
         loss = criterion(logits.flatten(-3, -2), labels.flatten(-2, -1))
 
+        if loss.isnan():
+            print(colorama.Fore.RED)
+            print('quitting: NaN loss encountered at step', step + 1)
+            print(colorama.Style.RESET_ALL, end='')
+            break
+
 
         logged_train_loss_sum += loss.item()
         displayed_train_loss_sum += loss.item()
@@ -176,7 +179,8 @@ def train(
 
         loss.backward()
 
-        torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+        for group in optimizer.param_groups:
+            torch.nn.utils.clip_grad_norm_(group['params'], group['clip_grad_norm_scale'])
 
         if (step + 1) % settings.update_interval == 0:
             optimizer.step()
