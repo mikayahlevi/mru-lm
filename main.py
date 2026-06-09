@@ -134,7 +134,7 @@ def manage_dataset_and_tokenizer(args: argparse.Namespace, pipeline: pipeline_pr
 
 
 
-def manage_wandb(args: argparse.Namespace, train_cfg: train_config, hprms_cfg: hyperparameter_config, model_cfg: transformer_config) -> tuple[contextlib.AbstractContextManager, Callable[[int, str, float], None]]:
+def manage_wandb(args: argparse.Namespace, train_cfg: train_config, hprms_cfg: hyperparameter_config, model_cfg: mru_lm_config) -> tuple[contextlib.AbstractContextManager, Callable[[int, str, float], None]]:
     # initialize wandb logging if enabled
     # uses optional context managers and metric logging functions
     wandb_cm = contextlib.nullcontext()
