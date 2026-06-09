@@ -183,7 +183,7 @@ def train(
         else:
             return hyperparameters.end_lr
 
-    optimizer = configure_optimizer(model, hyperparameters)
+    optimizer = configure_optimizer(model, hyperparameters, settings.sequence_length)
     scheduler = torch.optim.lr_scheduler.LambdaLR(
         optimizer,
         lr_lambda = lr_lambda
@@ -226,7 +226,7 @@ def train(
         inputs, labels = inputs.to(device), labels.to(device)
 
         with torch.amp.autocast(device_type = device_type, dtype = mp_dtype, enabled = mixed_precision):
-            logits = model(inputs)
+            logits, _ = model(inputs)
 
             # flatten batch and sequence dimensions into one dimension for computing the loss
             loss = criterion(logits.flatten(-3, -2), labels.flatten(-2, -1))
@@ -279,7 +279,7 @@ def train(
                     val_inputs, val_labels = val_inputs.to(device), val_labels.to(device)
 
                     with torch.amp.autocast(device_type = device_type, dtype = mp_dtype, enabled = mixed_precision):
-                        val_logits = model(val_inputs)
+                        val_logits, _ = model(val_inputs)
 
                         val_loss = criterion(val_logits.flatten(-3, -2), val_labels.flatten(-2, -1))
 

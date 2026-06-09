@@ -76,7 +76,16 @@ class mru(torch.nn.Module):
         # take the cayley transform
         identity = torch.eye(self.state_head_order, device = state_elements.device, dtype = state_elements.dtype)
 
-        return torch.linalg.solve(identity - state_matrix, identity + state_matrix)
+        original_dtype = state_matrix.dtype
+        with torch.amp.autocast(device_type = state_matrix.device.type, enabled = False):
+            if original_dtype not in (torch.float32, torch.float64):
+                state_matrix = state_matrix.float()
+
+            state_matrix = torch.linalg.solve(identity - state_matrix, identity + state_matrix)
+
+        state_matrix = state_matrix.to(original_dtype)
+
+        return state_matrix
 
 
     def forward(self, activations: torch.Tensor, last_state: Optional[torch.Tensor]) -> tuple[torch.Tensor, torch.Tensor]:
@@ -92,9 +101,8 @@ class mru(torch.nn.Module):
         full_input_states = input_states if last_state is None else torch.cat((last_state.unsqueeze(dim = -4), input_states), dim = -4)
 
         # ensure that full_input_states are float32 or float64, then cast back to the original dtype
+        original_dtype = full_input_states.dtype
         with torch.amp.autocast(device_type = full_input_states.device.type, enabled = False):
-            original_dtype = full_input_states.dtype
-
             if original_dtype not in (torch.float32, torch.float64):
                 full_input_states = full_input_states.float()
 
