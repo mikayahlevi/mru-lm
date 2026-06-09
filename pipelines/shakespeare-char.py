@@ -33,33 +33,34 @@ class character_tokenizer:
 
 
 class main_pipeline(pipeline_protocol[datasets.DatasetDict, character_tokenizer]):
-    def get_dataset_and_tokenizer(self, sequence_length: int) -> tuple[datasets.DatasetDict, character_tokenizer]:
-        dataset, vocab = None, None
+    def get_dataset_and_tokenizer(self, sequence_length: int, dataset: Optional[datasets.DatasetDict] = None, tokenizer: Optional[character_tokenizer] = None) -> tuple[datasets.DatasetDict, character_tokenizer]:
+        if tokenizer is None or dataset is None:
+            text = requests.get('https://raw.githubusercontent.com/karpathy/char-rnn/master/data/tinyshakespeare/input.txt').text
 
-        text = requests.get('https://raw.githubusercontent.com/karpathy/char-rnn/master/data/tinyshakespeare/input.txt').text
+        if tokenizer is None:
+            vocab = sorted(set(text)) # type: ignore
 
-        vocab = sorted(set(text))
+            tokenizer = character_tokenizer(vocab)
 
-        tokenizer = character_tokenizer(vocab)
+        if dataset is None:
+            ids = tokenizer.encode(text) # type: ignore
 
-        ids = tokenizer.encode(text)
-
-        train_to_val_ratio = 0.9
-        train_len = int(len(ids) * train_to_val_ratio)
+            train_to_val_ratio = 0.9
+            train_len = int(len(ids) * train_to_val_ratio)
 
 
-        dataset = datasets.DatasetDict({
-            'train': datasets.Dataset.from_dict({
-                'ids': ids[:train_len]
-            }),
-            'validation': datasets.Dataset.from_dict({
-                'ids': ids[train_len:]
+            dataset = datasets.DatasetDict({
+                'train': datasets.Dataset.from_dict({
+                    'ids': ids[:train_len]
+                }),
+                'validation': datasets.Dataset.from_dict({
+                    'ids': ids[train_len:]
+                })
             })
-        })
 
-        # batch the dataset
-        for split in dataset.keys():
-            dataset[split] = dataset[split].batch(sequence_length + 1, drop_last_batch = True)
+            # batch the dataset
+            for split in dataset.keys():
+                dataset[split] = dataset[split].batch(sequence_length + 1, drop_last_batch = True)
 
         return dataset.with_format(type = 'torch', columns = ['ids']), tokenizer
 

@@ -3,6 +3,9 @@
     "batch_size": 80,
 
 
+    "shuffle": false,
+
+
     "total_steps": 5000,
 
 

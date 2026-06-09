@@ -2,13 +2,13 @@ import torch
 import datasets
 
 import time
+import math
 import colorama
 import os
 import math
 
-
 from dataclasses import dataclass
-from typing import Callable, Any, cast
+from typing import Callable, Any, cast, Optional
 
 from pipeline import pipeline_protocol
 
@@ -17,6 +17,7 @@ class train_config:
     sequence_length: int
     batch_size: int
 
+    shuffle: bool
 
     total_steps: int
 
@@ -70,22 +71,22 @@ def configure_optimizer(model, hyperparameters, sequence_length: int):
         {
             'params': [wte_weight] + [final_ln_weight] + first_ln_weights + second_ln_weights,
             'weight_decay': 0.0,
-            'clip_grad_norm_scale': 1.0
+            'max_grad_norm': 1.0
         },
         {
             'params': mlp_up_weights + mlp_down_weights + state_matrices_down_weights + mru_out_weights,
             'weight_decay': hyperparameters.weight_decay,
-            'clip_grad_norm_scale': 1.0
+            'max_grad_norm': 1.0
         },
         {
             'params': state_matrices_up_weights,
             'weight_decay': hyperparameters.weight_decay,
-            'lr': hyperparameters.peak_lr * state_matrices_update_scale,
-            'clip_grad_norm_scale': math.sqrt(sequence_length / 2)
+            'lr': state_matrices_update_scale,
+            'max_grad_norm': math.sqrt(sequence_length / 2)
         }
     ]
 
-    return torch.optim.AdamW(optim_groups, lr = hyperparameters.peak_lr, betas = hyperparameters.betas)
+    return torch.optim.AdamW(optim_groups, lr = 1.0, betas = hyperparameters.betas)
 
 
 
@@ -100,12 +101,31 @@ def format_info(info):
     return tmp
 
 
+class accumulating_metric:
+    def __init__(self):
+        self.sum = 0.0
+        self.count = 0
+
+    def update(self, value: float):
+        self.sum += value
+        self.count += 1
+
+    def get_average_and_reset(self) -> float:
+        avg = self.sum / self.count if self.count > 0 else 0.0
+        self.sum = 0.0
+        self.count = 0
+
+        return avg
+
+
 
 def train(
     settings: train_config,
     hyperparameters: hyperparameter_config,
 
     model,
+
+    checkpoint,
 
     dataset: datasets.DatasetDict,
 
@@ -122,49 +142,94 @@ def train(
 
     checkpoint_save_path: str,
 
-    device
+    device,
+
+    precision: Optional[str] = None
 ):
     print(colorama.Fore.GREEN)
     print('starting training')
     print(colorama.Style.RESET_ALL, end='')
 
+    device_type = torch.device(device).type
+    mp_dtype = {
+        'fp16': torch.float16,
+        'bf16': torch.bfloat16,
+        'fp32': torch.float32,
+        None: torch.float32
+    }[precision]
 
-    train_dataloader, val_dataloader = pipeline.get_dataloaders(dataset, batch_size = settings.batch_size, shuffle = True, pin_memory = (device == 'cuda'))
+    mixed_precision = mp_dtype != torch.float32
 
+
+    train_dataloader, val_dataloader = pipeline.get_dataloaders(dataset, batch_size = settings.batch_size, shuffle = settings.shuffle, pin_memory = (device == 'cuda'))
+    train_dataloader_iter = iter(train_dataloader)
 
     mask_value = -100
 
     criterion = torch.nn.CrossEntropyLoss(reduction = 'mean', ignore_index = mask_value)
 
 
-    optimizer = configure_optimizer(model, hyperparameters, settings.sequence_length)
-    scheduler = torch.optim.lr_scheduler.ChainedScheduler(
-        [
-            torch.optim.lr_scheduler.LinearLR(optimizer, start_factor = hyperparameters.start_lr / hyperparameters.peak_lr, end_factor = 1.0, total_iters = hyperparameters.lr_warmup_steps // settings.schedule_interval),
-            torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max = hyperparameters.lr_decay_steps // settings.schedule_interval, eta_min = hyperparameters.end_lr)
-        ]
+    def lr_lambda(sched_step: int) -> float:
+        train_step = sched_step * settings.schedule_interval
+        decay_step = train_step - hyperparameters.lr_warmup_steps
+
+        if train_step < hyperparameters.lr_warmup_steps:
+            scale = train_step / hyperparameters.lr_warmup_steps
+            return hyperparameters.start_lr + scale * (hyperparameters.peak_lr - hyperparameters.start_lr)
+        elif decay_step < hyperparameters.lr_decay_steps:
+            # interpolates between 1 and 0
+            scale = 0.5 * (1 + math.cos(math.pi * decay_step / hyperparameters.lr_decay_steps))
+            return hyperparameters.end_lr + scale * (hyperparameters.peak_lr - hyperparameters.end_lr)
+        else:
+            return hyperparameters.end_lr
+
+    optimizer = configure_optimizer(model, hyperparameters)
+    scheduler = torch.optim.lr_scheduler.LambdaLR(
+        optimizer,
+        lr_lambda = lr_lambda
     )
 
+    # scaling not needed with bf16
+    scaler = torch.amp.GradScaler(device = device_type, enabled = (mp_dtype == torch.float16))
+
+    start_step = 0
+    if checkpoint is not None:
+        # note the model state dict is already loaded
+        optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+        scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
+        if checkpoint.get('scaler_state_dict') is not None and scaler.is_enabled():
+            scaler.load_state_dict(checkpoint['scaler_state_dict'])
+        start_step = checkpoint['step']
+
+        print(colorama.Fore.YELLOW)
+        print('resuming training from checkpoint at step', start_step)
+        print(colorama.Style.RESET_ALL, end='')
+
+        # advance dataloader to the correct position within the current epoch
+        for _ in range(start_step % len(train_dataloader)):
+            next(train_dataloader_iter)
 
 
-    logged_train_loss_sum = 0.0
-    displayed_train_loss_sum = 0.0
-    displayed_last_val_loss = 'n/a'
+
+    logged_tr_loss_avg = accumulating_metric()
+    display_tr_loss_sum = accumulating_metric()
+    last_val_loss = 'n/a'
 
 
     start = time.time()
-    for step in range(settings.total_steps):
+    for step in range(start_step, settings.total_steps):
         model.train()
 
-        ids = next(iter(train_dataloader))['ids']
+        ids = next(train_dataloader_iter)['ids']
 
         inputs, labels = pipeline.get_training_pairs(ids, tokenizer,  mask_value)
         inputs, labels = inputs.to(device), labels.to(device)
 
-        logits, _ = model(inputs)
+        with torch.amp.autocast(device_type = device_type, dtype = mp_dtype, enabled = mixed_precision):
+            logits = model(inputs)
 
-        # flatten batch and sequence dimensions into one dimension for computing the loss
-        loss = criterion(logits.flatten(-3, -2), labels.flatten(-2, -1))
+            # flatten batch and sequence dimensions into one dimension for computing the loss
+            loss = criterion(logits.flatten(-3, -2), labels.flatten(-2, -1))
 
         if loss.isnan():
             print(colorama.Fore.RED)
@@ -173,17 +238,24 @@ def train(
             break
 
 
-        logged_train_loss_sum += loss.item()
-        displayed_train_loss_sum += loss.item()
+        logged_tr_loss_avg.update(loss.item())
+        display_tr_loss_sum.update(loss.item())
 
 
-        loss.backward()
+        scaler.scale(loss / settings.update_interval).backward()
 
-        for group in optimizer.param_groups:
-            torch.nn.utils.clip_grad_norm_(group['params'], group['clip_grad_norm_scale'])
+        # note that we use step + 1 since we are measuring the completed steps and we have already executed a single step
+
+        if (step + 1) % len(train_dataloader) == 0:
+            # reset the dataloader iterator at the end of each epoch
+            train_dataloader_iter = iter(train_dataloader)
 
         if (step + 1) % settings.update_interval == 0:
-            optimizer.step()
+            scaler.unscale_(optimizer)
+            for group in optimizer.param_groups:
+                torch.nn.utils.clip_grad_norm_(group['params'], group['max_grad_norm'])
+            scaler.step(optimizer)
+            scaler.update()
             optimizer.zero_grad()
 
 
@@ -194,14 +266,11 @@ def train(
 
 
         if (step + 1) % loss_log_interval == 0:
-            train_loss_average = logged_train_loss_sum / loss_log_interval
-            logged_train_loss_sum = 0.0
-
-            log_metric(step, 'train_loss', train_loss_average)
+            log_metric(step, 'train_loss', logged_tr_loss_avg.get_average_and_reset())
 
 
         if (step + 1) % eval_interval == 0:
-            val_loss_sum = 0.0
+            val_loss_acc = accumulating_metric()
 
             model.eval()
             with torch.inference_mode():
@@ -209,19 +278,18 @@ def train(
                     val_inputs, val_labels = pipeline.get_training_pairs(val_item['ids'], tokenizer, mask_value)
                     val_inputs, val_labels = val_inputs.to(device), val_labels.to(device)
 
-                    val_logits, _ = model(val_inputs)
+                    with torch.amp.autocast(device_type = device_type, dtype = mp_dtype, enabled = mixed_precision):
+                        val_logits = model(val_inputs)
 
-                    val_loss = criterion(val_logits.flatten(-3, -2), val_labels.flatten(-2, -1))
+                        val_loss = criterion(val_logits.flatten(-3, -2), val_labels.flatten(-2, -1))
 
-                    val_loss_sum += val_loss.item()
+                    val_loss_acc.update(val_loss.item())
 
             model.train()
 
-            val_loss_avg = val_loss_sum / len(val_dataloader)
+            last_val_loss = val_loss_acc.get_average_and_reset()
 
-            displayed_last_val_loss = val_loss_avg
-
-            log_metric(step, 'val_loss', val_loss_avg)
+            log_metric(step, 'val_loss', last_val_loss)
 
 
         if (step + 1) % metric_print_interval == 0:
@@ -233,10 +301,9 @@ def train(
             }
 
 
-            print_info['avg train loss'] = '{:.4f}'.format(displayed_train_loss_sum / metric_print_interval)
-            displayed_train_loss_sum = 0
+            print_info['avg train loss'] = '{:.4f}'.format(display_tr_loss_sum.get_average_and_reset())
 
-            print_info['last val loss'] = '{:.4f}'.format(displayed_last_val_loss) if displayed_last_val_loss != 'n/a' else 'n/a'
+            print_info['last val loss'] = '{:.4f}'.format(last_val_loss) if last_val_loss != 'n/a' else 'n/a'
 
             print_info['current lr'] = '{:.6f}'.format(scheduler.get_last_lr()[0])
 
@@ -246,9 +313,15 @@ def train(
             print(colorama.Style.RESET_ALL, end='')
 
 
-
+        # this should remain last so that everything is updated before saving the checkpoint
         if (step + 1) % checkpoint_save_interval == 0:
-            torch.save(model, os.path.join(checkpoint_save_path, 'checkpoint-' + 'step-' + str(step + 1) + '.pt'))
+            torch.save({
+                'step': step + 1,
+                'model_state_dict': model.state_dict(),
+                'optimizer_state_dict': optimizer.state_dict(),
+                'scheduler_state_dict': scheduler.state_dict(),
+                'scaler_state_dict': scaler.state_dict() if scaler.is_enabled() else None,
+            }, os.path.join(checkpoint_save_path, 'checkpoint-' + 'step-' + str(step + 1) + '.pt'))
 
     print(colorama.Fore.GREEN)
     print('training finished:', settings.total_steps, 'steps completed')

@@ -60,10 +60,13 @@ class CutDownTokenizer:
 
 
 
-class main_pipeline(pipeline_protocol[datasets.DatasetDict, transformers.PreTrainedTokenizerFast]):
-    def get_dataset_and_tokenizer(self, sequence_length: int) -> tuple[datasets.DatasetDict, transformers.PreTrainedTokenizerFast]:
-        tokenizer = transformers.AutoTokenizer.from_pretrained("EleutherAI/gpt-neo-125M")
-        tokenizer.pad_token = tokenizer.eos_token
+class main_pipeline(pipeline_protocol[datasets.DatasetDict, CutDownTokenizer]):
+    def get_dataset_and_tokenizer(self, sequence_length: int, dataset: Optional[datasets.DatasetDict] = None, tokenizer: Optional[CutDownTokenizer] = None) -> tuple[datasets.DatasetDict, CutDownTokenizer]:
+        if tokenizer is None:
+            base_tokenizer = transformers.AutoTokenizer.from_pretrained("EleutherAI/gpt-neo-125M")
+            base_tokenizer.pad_token = base_tokenizer.eos_token
+        else:
+            base_tokenizer = tokenizer.base_tokenizer
 
 
         def repack_ids(examples):
@@ -83,27 +86,31 @@ class main_pipeline(pipeline_protocol[datasets.DatasetDict, transformers.PreTrai
             }
 
 
-        dataset = datasets.load_dataset("roneneldan/TinyStories")
+        if dataset is None:
+            dataset = datasets.load_dataset("roneneldan/TinyStories")
 
-        dataset = dataset.map(
-            lambda examples: tokenizer(examples["text"], truncation = False),
-            batched = True,
-            remove_columns = ["text"],
-            num_proc = 8,
-        )
+            dataset = dataset.map(
+                lambda examples: base_tokenizer(examples["text"], truncation = False),
+                batched = True,
+                remove_columns = ["text"],
+                num_proc = 8,
+            )
 
-        dataset = dataset.remove_columns([col for col in dataset["train"].column_names if col != "input_ids"])
+            dataset = dataset.remove_columns([col for col in dataset["train"].column_names if col != "input_ids"])
 
-        dataset = dataset.map(
-            repack_ids,
-            batched = True,
-            num_proc = 8,
-        )
+            dataset = dataset.map(
+                repack_ids,
+                batched = True,
+                num_proc = 8,
+            )
 
-        cutdown_tokenizer = CutDownTokenizer(tokenizer)
-        cutdown_tokenizer.create_id_map([cast(numpy.ndarray, dataset.with_format(type = "numpy")[split]["input_ids"]) for split in dataset.keys()])
+            dataset.rename_column("input_ids", "ids")
 
-        return dataset.rename_column("input_ids", "ids").with_format(type = "torch"), cutdown_tokenizer
+        if tokenizer is None:
+            tokenizer = CutDownTokenizer(base_tokenizer)
+            tokenizer.create_id_map([cast(numpy.ndarray, dataset.with_format(type = "numpy")[split]["input_ids"]) for split in dataset.keys()])
+
+        return dataset.with_format(type = "torch"), tokenizer
 
     def get_dataloaders(self, dataset: datasets.DatasetDict, **dataloader_args: Any) -> tuple[torch.utils.data.DataLoader, torch.utils.data.DataLoader]:
         train_dataloader = torch.utils.data.DataLoader(cast(torch.utils.data.Dataset, dataset["train"]), **dataloader_args)

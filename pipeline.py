@@ -10,7 +10,8 @@ tokenizer_type = TypeVar('tokenizer_type')
 dataset_type = TypeVar('dataset_type')
 
 class pipeline_protocol(Protocol[dataset_type, tokenizer_type]):
-    def get_dataset_and_tokenizer(self, sequence_length: int) -> tuple[dataset_type, tokenizer_type]:
+    # pass the dataset or tokenizer in to load them
+    def get_dataset_and_tokenizer(self, sequence_length: int, dataset: Optional[dataset_type], tokenizer: Optional[tokenizer_type]) -> tuple[dataset_type, tokenizer_type]:
         ...
 
     def get_dataloaders(self, dataset: dataset_type, **dataloader_args: Any) -> tuple[torch.utils.data.DataLoader, torch.utils.data.DataLoader]:
