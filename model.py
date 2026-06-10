@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from mru_scans.cuda_mru import op as parallel_mru_op
 
 @dataclass
-class mru_lm_config:
+class hybrid_lm_config:
     vocab_size: int
 
 
@@ -21,12 +21,22 @@ class mru_lm_config:
     n_state_heads: int
     state_size: int
 
+
+    n_attn_heads: int
+
+    key_size: int
+    value_size: int
+
+
     n_blocks: int
+
+
+    max_sequence_length: int
 
 
 
 class mru(torch.nn.Module):
-    def __init__(self, config: mru_lm_config):
+    def __init__(self, config: hybrid_lm_config):
         super(mru, self).__init__()
 
         self.config = config
@@ -122,9 +132,129 @@ class mru(torch.nn.Module):
         ), output_states[..., -1, :, :, :]
 
 
-class mru_lm_block(torch.nn.Module):
-    def __init__(self, config: mru_lm_config):
-        super(mru_lm_block, self).__init__()
+
+class attention_cache(torch.nn.Module):
+    def __init__(self, config: hybrid_lm_config, proceeding_dimensions: tuple[int, ...] = (1,)):
+        super(attention_cache, self).__init__()
+
+        self.config = config
+
+
+        self.last_position = 0
+        self.current_position = 0
+
+        self.keys = torch.nn.Buffer(torch.empty(
+            proceeding_dimensions + (config.n_blocks, config.max_sequence_length, config.n_attn_heads, config.key_size // config.n_attn_heads)
+        ))
+        self.values = torch.nn.Buffer(torch.empty(
+            proceeding_dimensions + (config.n_blocks, config.max_sequence_length, config.n_attn_heads, config.value_size // config.n_attn_heads)
+        ))
+
+    def increment_position(self, amount: int):
+        self.last_position = self.current_position
+        self.current_position += amount
+
+    def reset(self):
+        self.last_position = 0
+        self.current_position = 0
+
+    def append_keys(self, keys: torch.Tensor, attn_index: int):
+        self.keys[..., attn_index, self.last_position:self.current_position, :, :] = keys
+
+    def append_values(self, values: torch.Tensor, attn_index: int):
+        self.values[..., attn_index, self.last_position:self.current_position, :, :] = values
+
+    def get_full_keys(self, attn_index: int) -> torch.Tensor:
+        return self.keys[..., attn_index, :self.current_position, :, :]
+
+    def get_full_values(self, attn_index: int) -> torch.Tensor:
+        return self.values[..., attn_index, :self.current_position, :, :]
+
+    def get_previous_keys(self, attn_index: int) -> torch.Tensor:
+        return self.keys[..., attn_index, :self.last_position, :, :]
+
+    def get_previous_values(self, attn_index: int) -> torch.Tensor:
+        return self.values[..., attn_index, :self.last_position, :, :]
+
+
+    def get_mask(self) -> torch.Tensor:
+        return torch.ones(
+            (self.current_position - self.last_position, self.current_position), dtype = torch.bool, device = self.keys.device
+        ).tril(self.last_position)
+
+
+class attention(torch.nn.Module):
+    def __init__(self, config, block_index: int):
+        super(attention, self).__init__()
+
+        self.block_index = block_index
+
+        self.config = config
+
+        if config.key_size % config.n_attn_heads != 0:
+            raise ValueError("key size must be divisible by the number of attention heads")
+        self.key_head_size = config.key_size // config.n_attn_heads
+
+        if config.value_size % config.n_attn_heads != 0:
+            raise ValueError("value size must be divisible by the number of attention heads")
+        self.value_head_size = config.value_size // config.n_attn_heads
+
+
+        self.query_layer = torch.nn.Linear(config.embedding_size, config.key_size, bias = False)
+        self.key_layer = torch.nn.Linear(config.embedding_size, config.key_size, bias = False)
+        self.value_layer = torch.nn.Linear(config.embedding_size, config.value_size, bias = False)
+
+        torch.nn.init.normal_(self.query_layer.weight, mean = 0, std = 0.02)
+        torch.nn.init.normal_(self.key_layer.weight, mean = 0, std = 0.02)
+        torch.nn.init.normal_(self.value_layer.weight, mean = 0, std = 0.02)
+
+        self.attention_down = torch.nn.Linear(config.value_size, config.embedding_size, bias = False)
+        torch.nn.init.normal_(self.attention_down.weight, mean = 0, std = 0.02 / math.sqrt(2 * config.n_blocks))
+
+
+        # self.position_embedding = xpos(self.key_head_size, max_sequence_length = config.max_sequence_length)
+
+    def forward(self, activations: torch.Tensor, cache: Optional[attention_cache] = None) -> torch.Tensor:
+        use_cache = cache is not None
+
+        queries = self.query_layer(activations).unflatten(-1, (self.config.n_attn_heads, self.key_head_size))
+
+        keys = self.key_layer(activations).unflatten(-1, (self.config.n_attn_heads, self.key_head_size))
+        values = self.value_layer(activations).unflatten(-1, (self.config.n_attn_heads, self.value_head_size))
+
+        # queries, keys = self.position_embedding(
+        #     queries,
+        #     keys,
+        #     cache.last_position if use_cache else 0,
+        #     cache.current_position if use_cache else activations.size(-2)
+        # )
+
+        if use_cache:
+            cache.append_keys(keys, self.block_index)
+            cache.append_values(values, self.block_index)
+
+        # transpose to switch the sequence and head dimensions
+        output = torch.nn.functional.scaled_dot_product_attention(
+            queries.transpose(-3, -2),
+            (cache.get_full_keys(self.block_index) if use_cache else keys).transpose(-3, -2),
+            (cache.get_full_values(self.block_index) if use_cache else values).transpose(-3, -2),
+            is_causal = not use_cache,
+            dropout_p = self.config.dropout_rate if self.training else 0.0,
+            attn_mask = cache.get_mask() if use_cache else None
+        ).transpose(-3, -2)
+
+
+        return torch.nn.functional.dropout(
+            self.attention_down(
+                output.flatten(-2)
+            ),
+            p = self.config.dropout_rate,
+            training = self.training
+        )
+
+class base_block(torch.nn.Module):
+    def __init__(self, config: hybrid_lm_config):
+        super(base_block, self).__init__()
 
         self.config = config
 
@@ -142,6 +272,11 @@ class mru_lm_block(torch.nn.Module):
         torch.nn.init.normal_(self.mlp[0].weight, mean = 0, std = 0.02)
         torch.nn.init.normal_(self.mlp[2].weight, mean = 0, std = 0.02 / math.sqrt(2 * config.n_blocks))
 
+
+class mru_block(base_block):
+    def __init__(self, config: hybrid_lm_config, mru_index: int):
+        super(mru_block, self).__init__(config)
+
         self.mru = mru(config)
 
     def forward(self, activations: torch.Tensor, last_state: Optional[torch.Tensor]) -> tuple[torch.Tensor, torch.Tensor]:
@@ -152,15 +287,30 @@ class mru_lm_block(torch.nn.Module):
         return activations, new_state
 
 
+class attn_block(base_block):
+    def __init__(self, config: hybrid_lm_config, attn_index: int):
+        super(attn_block, self).__init__(config)
+
+        self.attn = attention(config, attn_index)
+
+    def forward(self, activations: torch.Tensor, cache: Optional[attention_cache] = None) -> torch.Tensor:
+        activations = activations + self.attn(self.first_ln(activations), cache)
+        activations = activations + self.mlp(self.second_ln(activations))
+        return activations
 
 
-class mru_lm_network(torch.nn.Module):
-    def __init__(self, config: mru_lm_config):
-        super(mru_lm_network, self).__init__()
+
+class hybrid_lm_network(torch.nn.Module):
+    def __init__(self, config: hybrid_lm_config):
+        super(hybrid_lm_network, self).__init__()
 
         self.config = config
 
-        self.blocks = torch.nn.ModuleList([mru_lm_block(config) for _ in range(config.n_blocks)])
+        # alternate between mru and attention blocks
+        # the mru block is first because it is aware of the sequence order, so it can pass that information on to the attention blocks
+        self.blocks = torch.nn.ModuleList([(
+            mru_block(config, block_index // 2) if block_index % 2 == 0 else attn_block(config, block_index // 2)
+        ) for block_index in range(config.n_blocks)])
 
         self.wte = torch.nn.Embedding(config.vocab_size, config.embedding_size)
         torch.nn.init.normal_(self.wte.weight, mean = 0, std = 0.02)
@@ -170,7 +320,12 @@ class mru_lm_network(torch.nn.Module):
         self.lm_head = torch.nn.Linear(config.embedding_size, config.vocab_size, bias = False)
         self.lm_head.weight = self.wte.weight
 
-    def forward(self, encodings: torch.Tensor, last_state: Optional[list[torch.Tensor]] | list[None] = None) -> tuple[torch.Tensor, list[torch.Tensor] | list[None]]:
+    def forward(
+        self,
+        encodings: torch.Tensor,
+        last_state: Optional[list[Optional[torch.Tensor]]] = None,
+        attn_cache: Optional[attention_cache] = None
+    ) -> tuple[torch.Tensor, list[Optional[torch.Tensor]]]:
         embeddings = torch.nn.functional.dropout(
             self.wte(encodings),
             p = self.config.dropout_rate,
@@ -181,12 +336,21 @@ class mru_lm_network(torch.nn.Module):
             last_state = self.get_initial_state()
 
         for i, block in enumerate(self.blocks):
-            embeddings, last_state[i] = block.forward(embeddings, last_state[i])
+            if isinstance(block, mru_block):
+                embeddings, last_state[i // 2] = block.forward(embeddings, last_state[i // 2])
+            else:
+                embeddings = block.forward(embeddings, attn_cache)
 
         embeddings = self.final_ln(embeddings)
         logits = self.lm_head(embeddings)
 
         return logits, last_state
 
-    def get_initial_state(self) -> list[torch.Tensor] | list[None]:
-        return ([None for _ in self.blocks])
+    def get_initial_state(self) -> list[Optional[torch.Tensor]]:
+        return ([None for _ in range(self.config.n_blocks // 2)])
+
+    def get_attn_blocks(self) -> list[attn_block]:
+        return [block for block in self.blocks if isinstance(block, attn_block)]
+
+    def get_mru_blocks(self) -> list[mru_block]:
+        return [block for block in self.blocks if isinstance(block, mru_block)]

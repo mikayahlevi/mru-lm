@@ -52,9 +52,14 @@ def configure_optimizer(model, hyperparameters, sequence_length: int):
     mlp_up_weights = [block.mlp[0].weight for block in model.blocks]
     mlp_down_weights = [block.mlp[2].weight for block in model.blocks]
 
-    state_matrices_up_weights = [block.mru.state_matrices_up.weight for block in model.blocks]
-    state_matrices_down_weights = [block.mru.state_matrices_down for block in model.blocks]
-    mru_out_weights = [block.mru.mru_out.weight for block in model.blocks]
+    state_matrices_up_weights = [block.mru.state_matrices_up.weight for block in model.get_mru_blocks()]
+    state_matrices_down_weights = [block.mru.state_matrices_down for block in model.get_mru_blocks()]
+    mru_out_weights = [block.mru.mru_out.weight for block in model.get_mru_blocks()]
+
+    query_layer_weights = [block.attn.query_layer.weight for block in model.get_attn_blocks()]
+    key_layer_weights = [block.attn.key_layer.weight for block in model.get_attn_blocks()]
+    value_layer_weights = [block.attn.value_layer.weight for block in model.get_attn_blocks()]
+    attention_down_weights = [block.attn.attention_down.weight for block in model.get_attn_blocks()]
 
 
     state_head_order = math.isqrt(model.config.state_size // model.config.n_state_heads)
@@ -74,7 +79,7 @@ def configure_optimizer(model, hyperparameters, sequence_length: int):
             'max_grad_norm': 1.0
         },
         {
-            'params': mlp_up_weights + mlp_down_weights + state_matrices_down_weights + mru_out_weights,
+            'params': mlp_up_weights + mlp_down_weights + state_matrices_down_weights + mru_out_weights + query_layer_weights + key_layer_weights + value_layer_weights + attention_down_weights,
             'weight_decay': hyperparameters.weight_decay,
             'max_grad_norm': 1.0
         },

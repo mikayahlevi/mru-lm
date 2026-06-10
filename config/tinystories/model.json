@@ -9,5 +9,14 @@
     "state_size": 768,
 
 
+    "n_attn_heads": 16,
+
+    "key_size": 768,
+    "value_size": 768,
+
+
+    "max_sequence_length": 2048,
+
+
     "n_blocks": 4
 }
