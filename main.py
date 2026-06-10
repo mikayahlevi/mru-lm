@@ -17,19 +17,15 @@ from pipeline import pipeline_protocol, get_pipeline
 
 
 def get_train_folder_path(train_folder_dir: str, train_folder_name: Optional[str]) -> str:
-    n_tries = 1000
+    n_tries = 256
 
     if train_folder_name is None:
-        train_folder_auto_name_index = 0
-
         for train_folder_auto_name_index in range(n_tries):
             train_folder_auto_name = 'train-' + str(train_folder_auto_name_index)
 
             current_auto_path = os.path.join(train_folder_dir, train_folder_auto_name)
 
-            if os.path.exists(current_auto_path):
-                train_folder_auto_name_index += 1
-            else:
+            if not os.path.exists(current_auto_path):
                 return current_auto_path
 
         raise ValueError(f'Could not find a free train folder name in {train_folder_dir} after a maximum of n_tries tries')
@@ -122,12 +118,12 @@ def manage_dataset_and_tokenizer(args: argparse.Namespace, pipeline: pipeline_pr
         print(colorama.Style.RESET_ALL, end='')
 
     if dataset is None or tokenizer is None:
-        dataset, tokenizer = pipeline.get_dataset_and_tokenizer(sequence_length = train_cfg.sequence_length, dataset = dataset, tokenizer = tokenizer)
+        dataset, tokenizer = pipeline.get_dataset_and_tokenizer(sequence_length = sequence_length, dataset = dataset, tokenizer = tokenizer)
 
-    # only save if they weren't loaded
-    if args.dataset_save_path is not None and args.dataset_load_path is None:
+    # only save if they were loaded from a different path
+    if args.dataset_save_path is not None and args.dataset_load_path != args.dataset_save_path:
         pipeline.save_dataset(dataset, args.dataset_save_path)
-    if args.tokenizer_save_path is not None and args.tokenizer_load_path is None:
+    if args.tokenizer_save_path is not None and args.tokenizer_load_path != args.tokenizer_save_path:
         pipeline.save_tokenizer(tokenizer, args.tokenizer_save_path)
 
     return dataset, tokenizer
@@ -206,6 +202,17 @@ if __name__ == '__main__':
     # load the model config later so that the vocab size can be overriden
     # vocab size is determined after sequence length is needed from the train config
     train_cfg, hprms_cfg = get_config(args, train_config, 'train', {}, train_folder_path), get_config(args, hyperparameter_config, 'hprms', {}, train_folder_path)
+
+    if train_cfg.total_steps % train_cfg.update_interval != 0:
+        print(colorama.Fore.YELLOW)
+        print('warning: total_steps is not a multiple of update_interval, the final gradients will be discarded')
+        print(colorama.Style.RESET_ALL, end='')
+
+    if args.checkpoint_save_interval is not None and args.checkpoint_save_interval % train_cfg.update_interval != 0:
+        print(colorama.Fore.YELLOW)
+        print('warning: checkpoint_save_interval is not a multiple of update_interval, the most recent unapplied gradients will not persist between saving and loading the checkpoint')
+        print(colorama.Style.RESET_ALL, end='')
+
 
     pipeline = get_pipeline(args)
 
