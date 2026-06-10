@@ -104,11 +104,11 @@ class main_pipeline(pipeline_protocol[datasets.DatasetDict, CutDownTokenizer]):
                 num_proc = 8,
             )
 
-            dataset.rename_column("input_ids", "ids")
+            dataset = dataset.rename_column("input_ids", "ids")
 
         if tokenizer is None:
             tokenizer = CutDownTokenizer(base_tokenizer)
-            tokenizer.create_id_map([cast(numpy.ndarray, dataset.with_format(type = "numpy")[split]["input_ids"]) for split in dataset.keys()])
+            tokenizer.create_id_map([cast(numpy.ndarray, dataset.with_format(type = "numpy")[split]["ids"]) for split in dataset.keys()])
 
         return dataset.with_format(type = "torch"), tokenizer
 
