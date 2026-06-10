@@ -3,13 +3,13 @@ import argparse
 import colorama
 import json
 
-from model import mru_lm_network
+from model import hybrid_lm_network
 from pipeline import pipeline_protocol, get_pipeline
 from typing import Any
 
 
 
-def sample(model: mru_lm_network, pipeline: pipeline_protocol[Any, Any], tokenizer, prefix: str, temperature: float, max_length: int, device: torch.device, print_output: bool = False) -> str:
+def sample(model: hybrid_lm_network, pipeline: pipeline_protocol[Any, Any], tokenizer, prefix: str, temperature: float, max_length: int, device: torch.device, print_output: bool = False) -> str:
     sequence = torch.empty((max_length,), dtype = torch.long, device = device)
 
     prev_encoding = pipeline.encode_text(tokenizer, prefix).to(device)
@@ -71,7 +71,7 @@ if __name__ == '__main__':
 
         checkpoint = torch.load(args.checkpoint_path, map_location = args.device, weights_only = False)
         model_state_dict = checkpoint['model_state_dict']
-        model = mru_lm_network(config)
+        model = hybrid_lm_network(config)
         model.load_state_dict(model_state_dict)
 
 

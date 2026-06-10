@@ -335,6 +335,9 @@ class hybrid_lm_network(torch.nn.Module):
         if last_state is None:
             last_state = self.get_initial_state()
 
+        if attn_cache is not None:
+            attn_cache.increment_position(embeddings.size(-2))
+
         for i, block in enumerate(self.blocks):
             if isinstance(block, mru_block):
                 embeddings, last_state[i // 2] = block.forward(embeddings, last_state[i // 2])
