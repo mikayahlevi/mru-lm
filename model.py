@@ -53,7 +53,10 @@ class mru(torch.nn.Module):
             raise ValueError(f"embedding size must be divisible by the state head order ({self.state_head_order})")
         self.embedding_chunk_size = config.embedding_size // (self.state_head_order * config.n_state_heads)
 
-        self.state_matrices_up = torch.nn.Linear(config.embedding_size, config.n_state_heads * (self.state_head_order * (self.state_head_order - 1)) // 2, bias = False)
+        n_state_elements = config.state_size
+        # n_state_elements = config.n_state_heads * (self.state_head_order * (self.state_head_order - 1)) // 2
+
+        self.state_matrices_up = torch.nn.Linear(config.embedding_size, n_state_elements, bias = False)
         torch.nn.init.zeros_(self.state_matrices_up.weight)
 
         self.state_matrices_down = torch.nn.Parameter(
@@ -70,32 +73,40 @@ class mru(torch.nn.Module):
         self.mru_out = torch.nn.Linear(config.embedding_size, config.embedding_size, bias = False)
         torch.nn.init.normal_(self.mru_out.weight, mean = 0, std = 0.02 / math.sqrt(2 * config.n_blocks))
 
+    
+    # use cayley to construct an orthogonal matrix Q, then multiply it by an upper triangular matrix R
+    # by ensuring the product of the upper triangular matrix's diagonal is 1 we can ensure that QR determinant 1
     def create_state_matrix(self, state_elements: torch.Tensor) -> torch.Tensor:
-        state_matrix = torch.zeros(
-            state_elements.shape[:-1] + (self.state_head_order, self.state_head_order),
-            device = state_elements.device,
-            dtype = state_elements.dtype
-        )
+        input_matrix = state_elements.unflatten(-1, (self.state_head_order, self.state_head_order))
 
+
+        upper_matrix = torch.triu(input_matrix, diagonal = 1)
+        
+        diagonal = torch.diagonal(input_matrix, dim1 = -2, dim2 = -1)
+        diagonal = torch.exp(diagonal - diagonal.mean(dim = -1, keepdim = True))
+
+        upper_matrix[..., torch.arange(self.state_head_order), torch.arange(self.state_head_order)] = diagonal
+        
         # construct a skew-symmetric matrix
-        lower_triangular_indices = torch.tril_indices(self.state_head_order, self.state_head_order, offset = -1)
-
-        state_matrix[..., lower_triangular_indices[0], lower_triangular_indices[1]] = state_elements
-        state_matrix = state_matrix - state_matrix.transpose(-2, -1)
+        skew_symmetric_matrix = input_matrix.tril(diagonal = -1)
+        skew_symmetric_matrix = skew_symmetric_matrix - skew_symmetric_matrix.transpose(-2, -1)
 
         # take the cayley transform
         identity = torch.eye(self.state_head_order, device = state_elements.device, dtype = state_elements.dtype)
 
-        original_dtype = state_matrix.dtype
-        with torch.amp.autocast(device_type = state_matrix.device.type, enabled = False):
+        original_dtype = input_matrix.dtype
+        with torch.amp.autocast(device_type = input_matrix.device.type, enabled = False):
             if original_dtype not in (torch.float32, torch.float64):
-                state_matrix = state_matrix.float()
+                skew_symmetric_matrix = skew_symmetric_matrix.float()
+            
+            orthogonal_matrix = torch.linalg.solve(identity - skew_symmetric_matrix, identity + skew_symmetric_matrix)
+        
+        orthogonal_matrix = orthogonal_matrix.to(original_dtype)
 
-            state_matrix = torch.linalg.solve(identity - state_matrix, identity + state_matrix)
-
-        state_matrix = state_matrix.to(original_dtype)
+        state_matrix = orthogonal_matrix @ upper_matrix
 
         return state_matrix
+
 
 
     def forward(self, activations: torch.Tensor, last_state: Optional[torch.Tensor]) -> tuple[torch.Tensor, torch.Tensor]:
