@@ -331,6 +331,7 @@ class hybrid_lm_network(torch.nn.Module):
         activations: torch.Tensor,
         index: int,
         layer,
+        new_state: list[torch.Tensor],
         prev_state: Optional[list[torch.Tensor]] = None,
         attn_cache: Optional[attention_cache] = None
     ):
@@ -340,10 +341,13 @@ class hybrid_lm_network(torch.nn.Module):
         # modify activations in place
         match layer:
             case mru():
+                this_prev_state = None
                 if prev_state is not None:
-                    activations, prev_state[specific_index] = layer(activations, prev_state[specific_index])
-                else:
-                    activations, _ = layer(activations, None)
+                    this_prev_state = prev_state[specific_index]
+
+                activations, this_new_state = layer(activations, this_prev_state)
+
+                new_state.append(this_new_state)
             case attention():
                 def process_qkv(q, k, v):
                     mask = None
@@ -391,11 +395,14 @@ class hybrid_lm_network(torch.nn.Module):
         if attn_cache is not None:
             attn_cache.increment_position(embeddings.size(-2))
 
+        new_state = []
+
         for index, (layer, pre_ln) in enumerate(zip(self.layers, self.pre_lns)):
             embeddings = embeddings + self.run_generic_layer(
                 pre_ln(embeddings),
                 index,
                 layer,
+                new_state,
                 prev_state,
                 attn_cache
             )
@@ -404,7 +411,7 @@ class hybrid_lm_network(torch.nn.Module):
         embeddings = self.final_ln(embeddings)
         logits = self.lm_head(embeddings)
 
-        return logits, prev_state
+        return logits, new_state
 
     def get_attn_layers(self) -> list[attention]:
         return [layer for layer in self.layers if isinstance(layer, attention)]
