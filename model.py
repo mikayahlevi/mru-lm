@@ -74,38 +74,19 @@ class mru(torch.nn.Module):
         torch.nn.init.normal_(self.mru_out.weight, mean = 0, std = 0.02 / math.sqrt(len(config.layers)))
 
 
-    # use cayley to construct an orthogonal matrix Q, then multiply it by an upper triangular matrix R
-    # by ensuring the product of the upper triangular matrix's diagonal is 1 we can ensure that QR determinant 1
     def create_state_matrix(self, state_elements: torch.Tensor) -> torch.Tensor:
         input_matrix = state_elements.unflatten(-1, (self.state_head_order, self.state_head_order))
 
-
-        upper_matrix = torch.triu(input_matrix, diagonal = 1)
+        lower_matrix = input_matrix.tril(diagonal = -1)
+        upper_matrix = input_matrix.triu(diagonal = 1)
 
         diagonal = torch.diagonal(input_matrix, dim1 = -2, dim2 = -1)
-        diagonal = torch.exp(diagonal - diagonal.mean(dim = -1, keepdim = True))
+        diagonal = torch.exp(diagonal - diagonal.mean(dim = -1, keepdim = True)).sqrt()
 
-        upper_matrix[..., torch.arange(self.state_head_order), torch.arange(self.state_head_order)] = diagonal
+        diagonal_matrix = torch.zeros_like(input_matrix)
+        diagonal_matrix.diagonal(dim1 = -2, dim2 = -1).copy_(diagonal)
 
-        # construct a skew-symmetric matrix
-        skew_symmetric_matrix = input_matrix.tril(diagonal = -1)
-        skew_symmetric_matrix = skew_symmetric_matrix - skew_symmetric_matrix.transpose(-2, -1)
-
-        # take the cayley transform
-        identity = torch.eye(self.state_head_order, device = state_elements.device, dtype = state_elements.dtype)
-
-        original_dtype = input_matrix.dtype
-        with torch.amp.autocast(device_type = input_matrix.device.type, enabled = False):
-            if original_dtype not in (torch.float32, torch.float64):
-                skew_symmetric_matrix = skew_symmetric_matrix.float()
-
-            orthogonal_matrix = torch.linalg.solve(identity - skew_symmetric_matrix, identity + skew_symmetric_matrix)
-
-        orthogonal_matrix = orthogonal_matrix.to(original_dtype)
-
-        state_matrix = orthogonal_matrix @ upper_matrix
-
-        return state_matrix
+        return (lower_matrix + diagonal_matrix) @ (upper_matrix + diagonal_matrix)
 
 
 
@@ -329,7 +310,7 @@ class hybrid_lm_network(torch.nn.Module):
         ])
 
         self.pre_lns = torch.nn.ModuleList([
-            torch.nn.LayerNorm(config.embedding_size, bias = False)
+            torch.nn.LayerNorm(config.embedding_size, bias = False) for _ in config.layers
         ])
 
         self.position_embedding = xpos(config.key_size // config.n_attn_heads, max_sequence_length = config.max_sequence_length)
@@ -354,7 +335,7 @@ class hybrid_lm_network(torch.nn.Module):
         attn_cache: Optional[attention_cache] = None
     ):
         # count of the previous layers of the same type
-        specific_index = self.specific_layer_index(index, layer)
+        specific_index = self.specific_layer_index(layer, index)
 
         # modify activations in place
         match layer:
@@ -379,7 +360,7 @@ class hybrid_lm_network(torch.nn.Module):
                         attn_cache.append_values(v, specific_index)
 
                         k = attn_cache.get_full_keys(specific_index)
-                        k = attn_cache.get_full_values(specific_index)
+                        v = attn_cache.get_full_values(specific_index)
 
                         mask = attn_cache.get_mask()
 

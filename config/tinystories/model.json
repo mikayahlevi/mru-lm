@@ -18,5 +18,12 @@
     "max_sequence_length": 2048,
 
 
-    "layers": ["mru", "mlp", "mru", "mlp"]
+    "layers": [
+        "mru", "mlp",
+        "mru", "mlp",
+        "mru", "mlp",
+        "mru", "mlp",
+        "mru", "mlp",
+        "mru", "mlp"
+    ]
 }
