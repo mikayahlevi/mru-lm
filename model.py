@@ -27,8 +27,8 @@ class hybrid_lm_config:
     key_size: int
     value_size: int
 
-
-    n_blocks: int
+    # processed through layer_name_map
+    layers: list[str]
 
 
     max_sequence_length: int
@@ -71,9 +71,9 @@ class mru(torch.nn.Module):
         )
 
         self.mru_out = torch.nn.Linear(config.embedding_size, config.embedding_size, bias = False)
-        torch.nn.init.normal_(self.mru_out.weight, mean = 0, std = 0.02 / math.sqrt(2 * config.n_blocks))
+        torch.nn.init.normal_(self.mru_out.weight, mean = 0, std = 0.02 / math.sqrt(len(config.layers)))
 
-    
+
     # use cayley to construct an orthogonal matrix Q, then multiply it by an upper triangular matrix R
     # by ensuring the product of the upper triangular matrix's diagonal is 1 we can ensure that QR determinant 1
     def create_state_matrix(self, state_elements: torch.Tensor) -> torch.Tensor:
@@ -81,12 +81,12 @@ class mru(torch.nn.Module):
 
 
         upper_matrix = torch.triu(input_matrix, diagonal = 1)
-        
+
         diagonal = torch.diagonal(input_matrix, dim1 = -2, dim2 = -1)
         diagonal = torch.exp(diagonal - diagonal.mean(dim = -1, keepdim = True))
 
         upper_matrix[..., torch.arange(self.state_head_order), torch.arange(self.state_head_order)] = diagonal
-        
+
         # construct a skew-symmetric matrix
         skew_symmetric_matrix = input_matrix.tril(diagonal = -1)
         skew_symmetric_matrix = skew_symmetric_matrix - skew_symmetric_matrix.transpose(-2, -1)
@@ -98,9 +98,9 @@ class mru(torch.nn.Module):
         with torch.amp.autocast(device_type = input_matrix.device.type, enabled = False):
             if original_dtype not in (torch.float32, torch.float64):
                 skew_symmetric_matrix = skew_symmetric_matrix.float()
-            
+
             orthogonal_matrix = torch.linalg.solve(identity - skew_symmetric_matrix, identity + skew_symmetric_matrix)
-        
+
         orthogonal_matrix = orthogonal_matrix.to(original_dtype)
 
         state_matrix = orthogonal_matrix @ upper_matrix
@@ -109,7 +109,7 @@ class mru(torch.nn.Module):
 
 
 
-    def forward(self, activations: torch.Tensor, last_state: Optional[torch.Tensor]) -> tuple[torch.Tensor, torch.Tensor]:
+    def forward(self, activations: torch.Tensor, prev_state: Optional[torch.Tensor]) -> tuple[torch.Tensor, torch.Tensor]:
         # bias states by the state_matrices_base, which starts as the identity so the update rule upon initialization is simple
         input_state_elements = torch.nn.functional.dropout(
             self.state_matrices_up(activations),
@@ -119,7 +119,7 @@ class mru(torch.nn.Module):
 
         input_states = self.create_state_matrix(input_state_elements)
 
-        full_input_states = input_states if last_state is None else torch.cat((last_state.unsqueeze(dim = -4), input_states), dim = -4)
+        full_input_states = input_states if prev_state is None else torch.cat((prev_state.unsqueeze(dim = -4), input_states), dim = -4)
 
         # ensure that full_input_states are float32 or float64, then cast back to the original dtype
         original_dtype = full_input_states.dtype
@@ -132,7 +132,7 @@ class mru(torch.nn.Module):
         full_output_states = full_output_states.to(original_dtype)
 
 
-        output_states = full_output_states if last_state is None else full_output_states[..., 1:, :, :, :]
+        output_states = full_output_states if prev_state is None else full_output_states[..., 1:, :, :, :]
 
         output = (output_states @ self.state_matrices_down).flatten(-3, -1)
 
@@ -145,60 +145,95 @@ class mru(torch.nn.Module):
 
 
 class attention_cache(torch.nn.Module):
-    def __init__(self, config: hybrid_lm_config, proceeding_dimensions: tuple[int, ...] = (1,)):
+    def __init__(self, config: hybrid_lm_config, preceeding_dimensions: tuple[int, ...] = ()):
         super(attention_cache, self).__init__()
 
-        self.config = config
+        self.prev_position = 0
+        self.curr_position = 0
 
-
-        self.last_position = 0
-        self.current_position = 0
+        n_attn_layers = config.layers.count("attn")
 
         self.keys = torch.nn.Buffer(torch.empty(
-            proceeding_dimensions + (config.n_blocks, config.max_sequence_length, config.n_attn_heads, config.key_size // config.n_attn_heads)
+            preceeding_dimensions + (n_attn_layers, config.max_sequence_length, config.n_attn_heads, config.key_size // config.n_attn_heads)
         ))
         self.values = torch.nn.Buffer(torch.empty(
-            proceeding_dimensions + (config.n_blocks, config.max_sequence_length, config.n_attn_heads, config.value_size // config.n_attn_heads)
+            preceeding_dimensions + (n_attn_layers, config.max_sequence_length, config.n_attn_heads, config.value_size // config.n_attn_heads)
         ))
 
     def increment_position(self, amount: int):
-        self.last_position = self.current_position
-        self.current_position += amount
+        self.prev_position = self.curr_position
+        self.curr_position += amount
 
     def reset(self):
-        self.last_position = 0
-        self.current_position = 0
+        self.prev_position = 0
+        self.curr_position = 0
 
     def append_keys(self, keys: torch.Tensor, attn_index: int):
-        self.keys[..., attn_index, self.last_position:self.current_position, :, :] = keys
+        self.keys[..., attn_index, self.prev_position:self.curr_position, :, :] = keys
 
     def append_values(self, values: torch.Tensor, attn_index: int):
-        self.values[..., attn_index, self.last_position:self.current_position, :, :] = values
+        self.values[..., attn_index, self.prev_position:self.curr_position, :, :] = values
 
     def get_full_keys(self, attn_index: int) -> torch.Tensor:
-        return self.keys[..., attn_index, :self.current_position, :, :]
+        return self.keys[..., attn_index, :self.curr_position, :, :]
 
     def get_full_values(self, attn_index: int) -> torch.Tensor:
-        return self.values[..., attn_index, :self.current_position, :, :]
+        return self.values[..., attn_index, :self.curr_position, :, :]
 
     def get_previous_keys(self, attn_index: int) -> torch.Tensor:
-        return self.keys[..., attn_index, :self.last_position, :, :]
+        return self.keys[..., attn_index, :self.prev_position, :, :]
 
     def get_previous_values(self, attn_index: int) -> torch.Tensor:
-        return self.values[..., attn_index, :self.last_position, :, :]
+        return self.values[..., attn_index, :self.prev_position, :, :]
 
 
     def get_mask(self) -> torch.Tensor:
         return torch.ones(
-            (self.current_position - self.last_position, self.current_position), dtype = torch.bool, device = self.keys.device
-        ).tril(self.last_position)
+            (self.curr_position - self.prev_position, self.curr_position), dtype = torch.bool, device = self.keys.device
+        ).tril(self.prev_position)
+
+
+
+class xpos(torch.nn.Module):
+    def __init__(self, key_head_size: int, max_sequence_length: int = 1024):
+        super(xpos, self).__init__()
+
+        if key_head_size % 2 != 0:
+            raise ValueError("key head size must be divisible by 2 for the positional embedding")
+
+        theta_base = 10000
+        alpha = 0.4 * key_head_size
+
+        drange = torch.arange(start = 2, end = key_head_size + 2, step = 2, dtype = torch.float32)
+        theta = torch.pow(1 / theta_base, drange / key_head_size).repeat_interleave(2)
+        zeta = ((drange / (key_head_size / 2) + alpha) / (1 + alpha)).repeat_interleave(2)
+        # no effect except for numerical stability
+        scale_base = 512
+        # no effect except for numerical stability
+        half_max_sequence_length = max_sequence_length // 2
+
+        seq_range = torch.arange(- half_max_sequence_length, max_sequence_length - half_max_sequence_length, dtype = torch.float32).view(-1, 1, 1) / scale_base
+
+        self.c = torch.nn.Buffer(torch.cos(seq_range * theta.view(1, 1, -1)))
+        self.s = torch.nn.Buffer(torch.sin(seq_range * theta.view(1, 1, -1)))
+        self.t = torch.nn.Buffer((zeta.view(1, 1, -1) ** seq_range))
+        self.invt = torch.nn.Buffer(1 / self.t)
+
+    def rotate_every_two(self, input: torch.Tensor) -> torch.Tensor:
+        return torch.stack((-input[..., 1::2], input[..., 0::2]), dim = -1).flatten(-2)
+
+    def forward(self, queries, keys, start, end) -> tuple[torch.Tensor, torch.Tensor]:
+        queries = (queries * self.c[start:end] + self.rotate_every_two(queries) * self.s[start:end]) * self.t[start:end]
+        keys = (keys * self.c[start:end] + self.rotate_every_two(keys) * self.s[start:end]) * self.invt[start:end]
+
+
+        return queries, keys
+
 
 
 class attention(torch.nn.Module):
-    def __init__(self, config, block_index: int):
+    def __init__(self, config):
         super(attention, self).__init__()
-
-        self.block_index = block_index
 
         self.config = config
 
@@ -220,38 +255,26 @@ class attention(torch.nn.Module):
         torch.nn.init.normal_(self.value_layer.weight, mean = 0, std = 0.02)
 
         self.attention_down = torch.nn.Linear(config.value_size, config.embedding_size, bias = False)
-        torch.nn.init.normal_(self.attention_down.weight, mean = 0, std = 0.02 / math.sqrt(2 * config.n_blocks))
+        torch.nn.init.normal_(self.attention_down.weight, mean = 0, std = 0.02 / math.sqrt(len(config.layers)))
 
 
-        # self.position_embedding = xpos(self.key_head_size, max_sequence_length = config.max_sequence_length)
-
-    def forward(self, activations: torch.Tensor, cache: Optional[attention_cache] = None) -> torch.Tensor:
-        use_cache = cache is not None
-
+    def forward(self, activations: torch.Tensor, process_qkv) -> torch.Tensor:
         queries = self.query_layer(activations).unflatten(-1, (self.config.n_attn_heads, self.key_head_size))
 
         keys = self.key_layer(activations).unflatten(-1, (self.config.n_attn_heads, self.key_head_size))
         values = self.value_layer(activations).unflatten(-1, (self.config.n_attn_heads, self.value_head_size))
 
-        # queries, keys = self.position_embedding(
-        #     queries,
-        #     keys,
-        #     cache.last_position if use_cache else 0,
-        #     cache.current_position if use_cache else activations.size(-2)
-        # )
-
-        if use_cache:
-            cache.append_keys(keys, self.block_index)
-            cache.append_values(values, self.block_index)
+        # process_qkv applies position embedding, appends keys and values to cache, and retrieves full keys and values
+        queries, keys, values, mask = process_qkv(queries, keys, values)
 
         # transpose to switch the sequence and head dimensions
         output = torch.nn.functional.scaled_dot_product_attention(
             queries.transpose(-3, -2),
-            (cache.get_full_keys(self.block_index) if use_cache else keys).transpose(-3, -2),
-            (cache.get_full_values(self.block_index) if use_cache else values).transpose(-3, -2),
-            is_causal = not use_cache,
+            keys.transpose(-3, -2),
+            values.transpose(-3, -2),
+            is_causal = mask is None,
             dropout_p = self.config.dropout_rate if self.training else 0.0,
-            attn_mask = cache.get_mask() if use_cache else None
+            attn_mask = mask
         ).transpose(-3, -2)
 
 
@@ -263,15 +286,13 @@ class attention(torch.nn.Module):
             training = self.training
         )
 
-class base_block(torch.nn.Module):
+
+
+class mlp(torch.nn.Module):
     def __init__(self, config: hybrid_lm_config):
-        super(base_block, self).__init__()
+        super(mlp, self).__init__()
 
         self.config = config
-
-
-        self.first_ln = torch.nn.LayerNorm(config.embedding_size, bias = False)
-        self.second_ln = torch.nn.LayerNorm(config.embedding_size, bias = False)
 
         self.mlp = torch.nn.Sequential(
             torch.nn.Linear(config.embedding_size, config.embedding_size * 4, bias = False),
@@ -281,34 +302,17 @@ class base_block(torch.nn.Module):
         )
 
         torch.nn.init.normal_(self.mlp[0].weight, mean = 0, std = 0.02)
-        torch.nn.init.normal_(self.mlp[2].weight, mean = 0, std = 0.02 / math.sqrt(2 * config.n_blocks))
+        torch.nn.init.normal_(self.mlp[2].weight, mean = 0, std = 0.02 / math.sqrt(len(config.layers)))
+
+    def forward(self, activations: torch.Tensor) -> torch.Tensor:
+        return self.mlp(activations)
 
 
-class mru_block(base_block):
-    def __init__(self, config: hybrid_lm_config, mru_index: int):
-        super(mru_block, self).__init__(config)
-
-        self.mru = mru(config)
-
-    def forward(self, activations: torch.Tensor, last_state: Optional[torch.Tensor]) -> tuple[torch.Tensor, torch.Tensor]:
-        mru_out, new_state = self.mru(self.first_ln(activations), last_state)
-
-        activations = activations + mru_out
-        activations = activations + self.mlp(self.second_ln(activations))
-        return activations, new_state
-
-
-class attn_block(base_block):
-    def __init__(self, config: hybrid_lm_config, attn_index: int):
-        super(attn_block, self).__init__(config)
-
-        self.attn = attention(config, attn_index)
-
-    def forward(self, activations: torch.Tensor, cache: Optional[attention_cache] = None) -> torch.Tensor:
-        activations = activations + self.attn(self.first_ln(activations), cache)
-        activations = activations + self.mlp(self.second_ln(activations))
-        return activations
-
+layer_name_map: dict[str, type] = {
+    'mru': mru,
+    'attn': attention,
+    'mlp': mlp
+}
 
 
 class hybrid_lm_network(torch.nn.Module):
@@ -317,11 +321,18 @@ class hybrid_lm_network(torch.nn.Module):
 
         self.config = config
 
-        # alternate between mru and attention blocks
-        # the mru block is first because it is aware of the sequence order, so it can pass that information on to the attention blocks
-        self.blocks = torch.nn.ModuleList([(
-            mru_block(config, block_index // 2) if block_index % 2 == 0 else attn_block(config, block_index // 2)
-        ) for block_index in range(config.n_blocks)])
+        self.layer_name_map = layer_name_map
+        self.layer_class_map = {v: k for k, v in layer_name_map.items()}
+
+        self.layers = torch.nn.ModuleList([
+            layer_name_map[layer_name](config) for layer_name in config.layers
+        ])
+
+        self.pre_lns = torch.nn.ModuleList([
+            torch.nn.LayerNorm(config.embedding_size, bias = False)
+        ])
+
+        self.position_embedding = xpos(config.key_size // config.n_attn_heads, max_sequence_length = config.max_sequence_length)
 
         self.wte = torch.nn.Embedding(config.vocab_size, config.embedding_size)
         torch.nn.init.normal_(self.wte.weight, mean = 0, std = 0.02)
@@ -331,40 +342,94 @@ class hybrid_lm_network(torch.nn.Module):
         self.lm_head = torch.nn.Linear(config.embedding_size, config.vocab_size, bias = False)
         self.lm_head.weight = self.wte.weight
 
+    def specific_layer_index(self, layer, index):
+        return self.config.layers[:index].count(self.layer_class_map[type(layer)])
+
+    def run_generic_layer(
+        self,
+        activations: torch.Tensor,
+        index: int,
+        layer,
+        prev_state: Optional[list[torch.Tensor]] = None,
+        attn_cache: Optional[attention_cache] = None
+    ):
+        # count of the previous layers of the same type
+        specific_index = self.specific_layer_index(index, layer)
+
+        # modify activations in place
+        match layer:
+            case mru():
+                if prev_state is not None:
+                    activations, prev_state[specific_index] = layer(activations, prev_state[specific_index])
+                else:
+                    activations, _ = layer(activations, None)
+            case attention():
+                def process_qkv(q, k, v):
+                    mask = None
+
+                    q, k = self.position_embedding(
+                        q,
+                        k,
+                        0 if attn_cache is None else attn_cache.prev_position,
+                        activations.size(-2) if attn_cache is None else attn_cache.curr_position
+                    )
+
+                    if attn_cache is not None:
+                        attn_cache.append_keys(k, specific_index)
+                        attn_cache.append_values(v, specific_index)
+
+                        k = attn_cache.get_full_keys(specific_index)
+                        k = attn_cache.get_full_values(specific_index)
+
+                        mask = attn_cache.get_mask()
+
+                    return q, k, v, mask
+
+
+                activations = layer(activations, process_qkv)
+            case mlp():
+                activations = layer(activations)
+            case _:
+                raise ValueError("unknown layer passed into run_generic_layer")
+
+
+        return activations
+
     def forward(
         self,
         encodings: torch.Tensor,
-        last_state: Optional[list[Optional[torch.Tensor]]] = None,
+        prev_state: Optional[list[torch.Tensor]] = None,
         attn_cache: Optional[attention_cache] = None
-    ) -> tuple[torch.Tensor, list[Optional[torch.Tensor]]]:
+    ) -> tuple[torch.Tensor, Optional[list[torch.Tensor]]]:
         embeddings = torch.nn.functional.dropout(
             self.wte(encodings),
             p = self.config.dropout_rate,
             training = self.training
         )
 
-        if last_state is None:
-            last_state = self.get_initial_state()
-
         if attn_cache is not None:
             attn_cache.increment_position(embeddings.size(-2))
 
-        for i, block in enumerate(self.blocks):
-            if isinstance(block, mru_block):
-                embeddings, last_state[i // 2] = block.forward(embeddings, last_state[i // 2])
-            else:
-                embeddings = block.forward(embeddings, attn_cache)
+        for index, (layer, pre_ln) in enumerate(zip(self.layers, self.pre_lns)):
+            embeddings = embeddings + self.run_generic_layer(
+                pre_ln(embeddings),
+                index,
+                layer,
+                prev_state,
+                attn_cache
+            )
+
 
         embeddings = self.final_ln(embeddings)
         logits = self.lm_head(embeddings)
 
-        return logits, last_state
+        return logits, prev_state
 
-    def get_initial_state(self) -> list[Optional[torch.Tensor]]:
-        return ([None for _ in range(self.config.n_blocks // 2)])
+    def get_attn_layers(self) -> list[attention]:
+        return [layer for layer in self.layers if isinstance(layer, attention)]
 
-    def get_attn_blocks(self) -> list[attn_block]:
-        return [block for block in self.blocks if isinstance(block, attn_block)]
+    def get_mru_layers(self) -> list[mru]:
+        return [layer for layer in self.layers if isinstance(layer, mru)]
 
-    def get_mru_blocks(self) -> list[mru_block]:
-        return [block for block in self.blocks if isinstance(block, mru_block)]
+    def get_mlp_layers(self) -> list[mlp]:
+        return [layer for layer in self.layers if isinstance(layer, mlp)]

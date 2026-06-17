@@ -46,20 +46,19 @@ def configure_optimizer(model, hyperparameters, sequence_length: int):
 
     final_ln_weight = model.final_ln.weight
 
-    first_ln_weights = [block.first_ln.weight for block in model.blocks]
-    second_ln_weights = [block.second_ln.weight for block in model.blocks]
+    pre_ln_weights = [pre_ln.weight for pre_ln in model.pre_lns]
 
-    mlp_up_weights = [block.mlp[0].weight for block in model.blocks]
-    mlp_down_weights = [block.mlp[2].weight for block in model.blocks]
+    mlp_up_weights = [layer.mlp[0].weight for layer in model.get_mlp_layers()]
+    mlp_down_weights = [layer.mlp[2].weight for layer in model.get_mlp_layers()]
 
-    state_matrices_up_weights = [block.mru.state_matrices_up.weight for block in model.get_mru_blocks()]
-    state_matrices_down_weights = [block.mru.state_matrices_down for block in model.get_mru_blocks()]
-    mru_out_weights = [block.mru.mru_out.weight for block in model.get_mru_blocks()]
+    state_matrices_up_weights = [layer.state_matrices_up.weight for layer in model.get_mru_layers()]
+    state_matrices_down_weights = [layer.state_matrices_down for layer in model.get_mru_layers()]
+    mru_out_weights = [layer.mru_out.weight for layer in model.get_mru_layers()]
 
-    query_layer_weights = [block.attn.query_layer.weight for block in model.get_attn_blocks()]
-    key_layer_weights = [block.attn.key_layer.weight for block in model.get_attn_blocks()]
-    value_layer_weights = [block.attn.value_layer.weight for block in model.get_attn_blocks()]
-    attention_down_weights = [block.attn.attention_down.weight for block in model.get_attn_blocks()]
+    query_layer_weights = [layer.query_layer.weight for layer in model.get_attn_layers()]
+    key_layer_weights = [layer.key_layer.weight for layer in model.get_attn_layers()]
+    value_layer_weights = [layer.value_layer.weight for layer in model.get_attn_layers()]
+    attention_down_weights = [layer.attention_down.weight for layer in model.get_attn_layers()]
 
 
     state_head_order = math.isqrt(model.config.state_size // model.config.n_state_heads)
@@ -74,7 +73,7 @@ def configure_optimizer(model, hyperparameters, sequence_length: int):
 
     optim_groups = [
         {
-            'params': [wte_weight] + [final_ln_weight] + first_ln_weights + second_ln_weights,
+            'params': [wte_weight] + [final_ln_weight] + pre_ln_weights,
             'weight_decay': 0.0,
             'max_grad_norm': 1.0
         },
