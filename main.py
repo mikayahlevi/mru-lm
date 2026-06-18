@@ -11,7 +11,7 @@ from typing import Any, Optional, get_origin, Callable
 import dataclasses
 
 
-from model import mru_lm_network, mru_lm_config
+from model import hybrid_lm_network, hybrid_lm_config
 from train import train, train_config, hyperparameter_config
 from pipeline import pipeline_protocol, get_pipeline
 
@@ -172,9 +172,9 @@ if __name__ == '__main__':
     parser.add_argument('--checkpoint-load-path', type = str, default = None, help = 'path to a checkpoint to load and resume training from')
 
     # add overrides for all config values as cli arguments
-    for config in [train_config, hyperparameter_config, mru_lm_config]:
+    for config in [train_config, hyperparameter_config, hybrid_lm_config]:
         for field in dataclasses.fields(config):
-            if config == mru_lm_config and field.name == 'vocab_size':
+            if config == hybrid_lm_config and field.name == 'vocab_size':
                 continue # vocab size is determined by the pipeline and should not be set manually
 
             # format the names to replace underscores with dashes for the cli arguments
@@ -219,7 +219,7 @@ if __name__ == '__main__':
     dataset, tokenizer = manage_dataset_and_tokenizer(args, pipeline, sequence_length = train_cfg.sequence_length)
 
 
-    model_cfg = get_config(args, mru_lm_config, 'model', {'vocab_size': pipeline.get_vocab_size(tokenizer)}, train_folder_path = train_folder_path)
+    model_cfg = get_config(args, hybrid_lm_config, 'model', {'vocab_size': pipeline.get_vocab_size(tokenizer)}, train_folder_path = train_folder_path)
 
 
     # initialize wandb logging if enabled
@@ -268,7 +268,7 @@ if __name__ == '__main__':
         print(colorama.Style.RESET_ALL, end='')
 
 
-    model = mru_lm_network(model_cfg).to(args.device)
+    model = hybrid_lm_network(model_cfg).to(args.device)
 
     # load the state dict before training, everything else is loaded in the train function
     if checkpoint is not None:
