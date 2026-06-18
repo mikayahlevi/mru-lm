@@ -69,7 +69,7 @@ def configure_optimizer(model, hyperparameters, sequence_length: int):
 
     # furthermore, the state matrices have fan_in of state_head_order
     # based on μP, we should scale the lr by 1 / state_head_order
-    state_matrices_update_scale = math.sqrt(1 / state_head_order) * math.sqrt(2 / sequence_length)
+    state_matrices_update_scale = (1 / state_head_order) * math.sqrt(2 / sequence_length)
 
     optim_groups = [
         {
@@ -84,7 +84,7 @@ def configure_optimizer(model, hyperparameters, sequence_length: int):
         },
         {
             'params': state_matrices_up_weights,
-            'weight_decay': 0.0,
+            'weight_decay': hyperparameters.weight_decay,
             'lr': state_matrices_update_scale,
             'max_grad_norm': math.sqrt(sequence_length / 2)
         }
