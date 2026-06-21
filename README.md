@@ -1,16 +1,14 @@
 # mru-lm
 
-## What is this?
-
-### Introduction
+## Introduction
 
 This repo adds the option to use the matrix recurrent unit (MRU) in place of attention in a traditional GPT2-based transformer.
 
 Run using main.py, which allows you to specify model, hyperparameter, and training configuration files or to set the parameters manually using CLI arguments. 
 
-### Explanation of the MRU
+## Explanation of the MRU
 
-#### Inspiration
+### Inspiration
 
 I came up with the MRU by asking what would happen if the weight matrix in a recurrent neural network was fully data-dependent. Exploring this, I dropped the additive terms, yielding: $H_t = H_{t-1} M_t$, $H_1 = M_1$. $M_t$ is the input state matrix and is a (selectable) function of $x_t$ that transforms the input embeddings into a matrix. $H_t$ is the  hidden state AKA output state matrix. The output embeddings, $y_t$, are a (selectable) function of $H_t$.
 
@@ -20,7 +18,7 @@ The following are some entailing properties:
 - The complexity of the computation scales with the cube of order/width of $M_t$. Therefore, we must choose the order of the input matrices $M_t$ to be significantly smaller than the weight matrix of an RNN, for example on the order of $\sqrt{d}$ ($d$ being model width).
 - When processing the tokens sequentially, the network scales linearly with sequence length in contrast to attention which scales quadratically.
 
-### Dimensions and Computational Complexity
+## Dimensions and Computational Complexity
 
 For the rest of this document, let's call the sequence length $s$, the number of heads $h$, the embedding size of the network $d_e$, and the state size of the network $d_s$.
 The head size, consequently, is $d_h = \frac{d_s}{h}$.
@@ -59,7 +57,7 @@ $$
 (\log_2 s) (s) (h)  (d_o)^3 = (\log_2 s) (s) (d_h)^{-\frac{1}{2}} (d_s)^\frac{3}{2}
 $$
 
-### Restructuring the Vectors into Matrices and Back
+## Restructuring the Vectors into Matrices and Back
 
 The MRU should take in a sequence of vectors and return a sequence of vectors, like any other traditional operation in a neural network. For now I'll ignore the batch and sequence dimensions and only focus on the final dimension. The input and output embeddings $x$ and $y$ are vectors, but the input and output hidden states $M$ and $H$ are matrices so we must have a way to convert vectors to matrices and matrices to vectors.
 
@@ -78,12 +76,12 @@ Therefore, $W_{out}$ is a $h \times d_h \times d_c$ tensor, which has the result
 
 However, the determinant of $M$ is completely free to vary in this method. If the determinant tends lower or higher than 1, the hidden matrices can collapse or explode. In the [create_state_matrix.ipynb notebook](https://github.com/mikayahlevi/mru-lm/blob/main/create_state_matrix.ipynb), I explore stable variants, such as filling a skew-symmetric matrix with elements from a vector and taking the Cayley transform, guaranteeing an orthogonal matrix or creating LDU factors, allowing the determinants to be efficiently normalized.
 
-### Comparison with Other Linear-Time Sequence Algorithms
+## Comparison with Other Linear-Time Sequence Algorithms
 
 Many recent proposed linear-time architectures reformulate attention by linearizing it. The keys and values can then be expressed by a single matrix, which is additively updated through time. Architectures like Mamba 2, DeltaNet, RWKV, and more use variations of the linear attention/state matrix duality.
 This project drastically differs from the other linear-time algorithms because the state matrix is much smaller and the updates are multiplicative in contrast to additive. Some of the other projects multiply by a structured matrix each timestep, but the MRU uses full, dense matrices, focusing on maximizing the computation from one position in the sequence in another, at the cost of the information density of the states.
 
-### Efficient Backward Pass Implementation
+## Efficient Backward Pass Implementation
 
 For the MRU, I've derived an efficient algorithm using a parallel scan to compute it.
 
