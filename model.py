@@ -302,12 +302,13 @@ class hybrid_lm_network(torch.nn.Module):
 
         self.config = config
 
-        self.layer_name_map = layer_name_map
-        self.layer_class_map = {v: k for k, v in layer_name_map.items()}
+        layer_class_map = {v: k for k, v in layer_name_map.items()}
 
         self.layers = torch.nn.ModuleList([
             layer_name_map[layer_name](config) for layer_name in config.layers
         ])
+
+        self.specific_layer_indices = [self.config.layers[:i].count(layer_class_map[type(layer)]) for i, layer in enumerate(self.layers)]
 
         self.pre_lns = torch.nn.ModuleList([
             torch.nn.LayerNorm(config.embedding_size, bias = False) for _ in config.layers
@@ -322,63 +323,6 @@ class hybrid_lm_network(torch.nn.Module):
 
         self.lm_head = torch.nn.Linear(config.embedding_size, config.vocab_size, bias = False)
         self.lm_head.weight = self.wte.weight
-
-    def specific_layer_index(self, layer, index):
-        return self.config.layers[:index].count(self.layer_class_map[type(layer)])
-
-    def run_generic_layer(
-        self,
-        activations: torch.Tensor,
-        index: int,
-        layer,
-        new_state: list[torch.Tensor],
-        prev_state: Optional[list[torch.Tensor]] = None,
-        attn_cache: Optional[attention_cache] = None
-    ):
-        # count of the previous layers of the same type
-        specific_index = self.specific_layer_index(layer, index)
-
-        # modify activations in place
-        match layer:
-            case mru():
-                this_prev_state = None
-                if prev_state is not None:
-                    this_prev_state = prev_state[specific_index]
-
-                activations, this_new_state = layer(activations, this_prev_state)
-
-                new_state.append(this_new_state)
-            case attention():
-                def process_qkv(q, k, v):
-                    mask = None
-
-                    q, k = self.position_embedding(
-                        q,
-                        k,
-                        0 if attn_cache is None else attn_cache.prev_position,
-                        activations.size(-2) if attn_cache is None else attn_cache.curr_position
-                    )
-
-                    if attn_cache is not None:
-                        attn_cache.append_keys(k, specific_index)
-                        attn_cache.append_values(v, specific_index)
-
-                        k = attn_cache.get_full_keys(specific_index)
-                        v = attn_cache.get_full_values(specific_index)
-
-                        mask = attn_cache.get_mask()
-
-                    return q, k, v, mask
-
-
-                activations = layer(activations, process_qkv)
-            case mlp():
-                activations = layer(activations)
-            case _:
-                raise ValueError("unknown layer passed into run_generic_layer")
-
-
-        return activations
 
     def forward(
         self,
@@ -398,14 +342,47 @@ class hybrid_lm_network(torch.nn.Module):
         new_state = []
 
         for index, (layer, pre_ln) in enumerate(zip(self.layers, self.pre_lns)):
-            embeddings = embeddings + self.run_generic_layer(
-                pre_ln(embeddings),
-                index,
-                layer,
-                new_state,
-                prev_state,
-                attn_cache
-            )
+            # count of the previous layers of the same type
+            specific_index = self.specific_layer_indices[index]
+
+            if isinstance(layer, mru):
+                this_prev_state = None
+                if prev_state is not None:
+                    this_prev_state = prev_state[specific_index]
+
+                layer_out, this_new_state = layer(embeddings, this_prev_state)
+
+                new_state.append(this_new_state)
+            elif isinstance(layer, attention):
+                def process_qkv(q, k, v):
+                    mask = None
+
+                    q, k = self.position_embedding(
+                        q,
+                        k,
+                        0 if attn_cache is None else attn_cache.prev_position,
+                        layer_out.size(-2) if attn_cache is None else attn_cache.curr_position
+                    )
+
+                    if attn_cache is not None:
+                        attn_cache.append_keys(k, specific_index)
+                        attn_cache.append_values(v, specific_index)
+
+                        k = attn_cache.get_full_keys(specific_index)
+                        v = attn_cache.get_full_values(specific_index)
+
+                        mask = attn_cache.get_mask()
+
+                    return q, k, v, mask
+
+
+                layer_out = layer(embeddings, process_qkv)
+            elif isinstance(layer, mlp):
+                layer_out = layer(embeddings)
+
+
+
+            embeddings = embeddings + layer_out
 
 
         embeddings = self.final_ln(embeddings)
