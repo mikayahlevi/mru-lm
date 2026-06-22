@@ -342,6 +342,8 @@ class hybrid_lm_network(torch.nn.Module):
         new_state = []
 
         for index, (layer, pre_ln) in enumerate(zip(self.layers, self.pre_lns)):
+            embeddings = pre_ln(embeddings)
+
             # count of the previous layers of the same type
             specific_index = self.specific_layer_indices[index]
 
