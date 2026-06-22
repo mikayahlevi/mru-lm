@@ -342,7 +342,7 @@ class hybrid_lm_network(torch.nn.Module):
         new_state = []
 
         for index, (layer, pre_ln) in enumerate(zip(self.layers, self.pre_lns)):
-            embeddings = pre_ln(embeddings)
+            layer_in = pre_ln(embeddings)
 
             # count of the previous layers of the same type
             specific_index = self.specific_layer_indices[index]
@@ -352,7 +352,7 @@ class hybrid_lm_network(torch.nn.Module):
                 if prev_state is not None:
                     this_prev_state = prev_state[specific_index]
 
-                layer_out, this_new_state = layer(embeddings, this_prev_state)
+                layer_out, this_new_state = layer(layer_in, this_prev_state)
 
                 new_state.append(this_new_state)
             elif isinstance(layer, attention):
@@ -363,7 +363,7 @@ class hybrid_lm_network(torch.nn.Module):
                         q,
                         k,
                         0 if attn_cache is None else attn_cache.prev_position,
-                        layer_out.size(-2) if attn_cache is None else attn_cache.curr_position
+                        layer_in.size(-2) if attn_cache is None else attn_cache.curr_position
                     )
 
                     if attn_cache is not None:
@@ -378,9 +378,9 @@ class hybrid_lm_network(torch.nn.Module):
                     return q, k, v, mask
 
 
-                layer_out = layer(embeddings, process_qkv)
+                layer_out = layer(layer_in, process_qkv)
             elif isinstance(layer, mlp):
-                layer_out = layer(embeddings)
+                layer_out = layer(layer_in)
 
 
 
